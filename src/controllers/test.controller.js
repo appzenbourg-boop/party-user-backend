@@ -1,6 +1,6 @@
 import { EventPresence } from '../models/EventPresence.js';
 import { User } from '../models/user.model.js';
-import { Booking } from '../models/Booking.js';
+import { Booking } from '../models/booking.model.js';
 
 /**
  * TEST ENDPOINT: Add checked-in users to EventPresence for radar testing
