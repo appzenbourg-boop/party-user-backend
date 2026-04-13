@@ -25,26 +25,43 @@ export const getNearbyUsers = async (req, res) => {
         const { eventId } = req.params;
         const myUserId = req.user.id;
 
+        console.log('👥 [getNearbyUsers] Request:', { eventId, myUserId });
+
         // Find users with visibility = true inside this event, excluding myself.
         const thirtyMinsAgo = new Date(Date.now() - 30 * 60000);
         const cacheKey = cacheService.formatKey('nearby', eventId, myUserId);
-        const presences = await cacheService.wrap(cacheKey, 5, async () => {
-            return await EventPresence.find({
-                eventId,
-                userId: { $ne: myUserId },
-                visibility: true,
-                lastSeen: { $gte: thirtyMinsAgo }
-            }).populate('userId', 'name username profileImage gender tags').lean();
-        });
+        
+        // Skip cache for debugging
+        console.log('🔍 [getNearbyUsers] Querying EventPresence...');
+        const presences = await EventPresence.find({
+            eventId,
+            userId: { $ne: myUserId },
+            visibility: true,
+            lastSeen: { $gte: thirtyMinsAgo }
+        }).populate('userId', 'name username profileImage gender tags').lean();
 
         console.log('👥 [getNearbyUsers] Found presences:', presences.length);
+        
+        // Also check total presences without filters
+        const totalPresences = await EventPresence.countDocuments({ eventId });
+        const visiblePresences = await EventPresence.countDocuments({ eventId, visibility: true });
+        const recentPresences = await EventPresence.countDocuments({ eventId, lastSeen: { $gte: thirtyMinsAgo } });
+        
+        console.log('📊 [getNearbyUsers] Stats:', {
+            total: totalPresences,
+            visible: visiblePresences,
+            recent: recentPresences,
+            thirtyMinsAgo: thirtyMinsAgo.toISOString()
+        });
+        
         if (presences.length > 0) {
             console.log('📋 [getNearbyUsers] First user:', {
                 name: presences[0].userId?.name,
                 username: presences[0].userId?.username,
                 visibility: presences[0].visibility,
                 lat: presences[0].lat,
-                lng: presences[0].lng
+                lng: presences[0].lng,
+                lastSeen: presences[0].lastSeen
             });
         }
 
@@ -66,6 +83,7 @@ export const getNearbyUsers = async (req, res) => {
             };
         });
 
+        console.log('✅ [getNearbyUsers] Returning:', processed.length, 'users');
         res.json({ success: true, data: processed });
     } catch (error) {
         console.error('❌ [getNearbyUsers] Error:', error.message);
