@@ -145,7 +145,7 @@ export const sendOtp = async (req, res, next) => {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // ⚡ PRODUCTION-READY: Use env variable to control Twilio bypass
+            // ⚡ Controlled via TWILIO_BYPASS env var (true = demo/local, false = production)
             const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
             if (useTwilioBypass) {
@@ -212,7 +212,7 @@ export const verifyOtp = async (req, res, next) => {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // ⚡ PRODUCTION-READY: Use env variable to control Twilio bypass
+            // ⚡ Controlled via TWILIO_BYPASS env var (true = demo/local, false = production)
             const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
             if (useTwilioBypass) {
