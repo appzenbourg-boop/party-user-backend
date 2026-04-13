@@ -32,8 +32,8 @@ export const getAllEvents = async (req, res, next) => {
                 status: 'LIVE', 
                 date: { $gte: startOfToday } 
             })
-            .select('title date startTime coverImage attendeeCount') // Only essential fields
-            .populate('hostId', 'name profileImage') // Minimal host data
+            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName') // Added location fields
+            .populate('hostId', 'name profileImage businessName logo') // Added businessName and logo
             .sort({ date: 1, isFeatured: -1 })
             .skip(skip)
             .limit(limit)
@@ -60,7 +60,11 @@ export const getAllEvents = async (req, res, next) => {
                     coverImage: e.coverImage,
                     displayPrice: minPrice,
                     occupancy: `${occupancy}%`,
-                    hostId: e.hostId || { name: 'Collective Underground' }
+                    locationVisibility: e.locationVisibility,
+                    locationData: e.locationData,
+                    bookingOpenDate: e.bookingOpenDate,
+                    venueName: e.venueName,
+                    hostId: e.hostId // Don't override with fallback - let frontend handle it
                 };
             });
         });
