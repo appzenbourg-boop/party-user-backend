@@ -32,8 +32,11 @@ export const getAllEvents = async (req, res, next) => {
                 status: 'LIVE', 
                 date: { $gte: startOfToday } 
             })
-            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName') // Added location fields
-            .populate('hostId', 'name profileImage businessName logo') // Added businessName and logo
+            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel') // Added hostModel for refPath
+            .populate({
+                path: 'hostId',
+                select: 'name profileImage businessName logo'
+            })
             .sort({ date: 1, isFeatured: -1 })
             .skip(skip)
             .limit(limit)
