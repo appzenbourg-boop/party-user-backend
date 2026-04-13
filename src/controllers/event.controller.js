@@ -545,6 +545,19 @@ export const getActiveEvent = async (req, res, next) => {
         if (booking && booking.hostId) {
             booking.hostId = booking.hostId.toString();
             console.log('🎯 [getActiveEvent] Converted hostId to string:', booking.hostId);
+            
+            // Get live crowd count for this event
+            const eventId = booking.eventId?._id || booking.eventId;
+            if (eventId) {
+                const checkedInCount = await Booking.countDocuments({
+                    eventId: eventId,
+                    status: { $in: ['checked_in', 'active'] }
+                });
+                
+                booking.liveCrowd = checkedInCount;
+                console.log('👥 [getActiveEvent] Live crowd count:', checkedInCount);
+            }
+            
             await cacheService.set(cacheKey, booking, 120);
         } else {
             console.log('⚠️ [getActiveEvent] No active booking found');
