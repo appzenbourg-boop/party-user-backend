@@ -71,24 +71,37 @@ export const initSocket = (server) => {
         // Update presence / visibility
         socket.on('updatePresence', async (data) => {
             const { eventId, lat, lng, visibility } = data;
-            if(!eventId) return;
+            console.log('📡 [Socket] updatePresence received:', { userId, eventId, lat, lng, visibility });
+            
+            if(!eventId) {
+                console.warn('⚠️ [Socket] updatePresence: No eventId provided');
+                return;
+            }
 
             try {
-                await EventPresence.findOneAndUpdate(
+                const updated = await EventPresence.findOneAndUpdate(
                     { userId, eventId },
                     { userId, eventId, lat, lng, visibility, lastSeen: new Date() },
                     { upsert: true, new: true }
                 );
                 
+                console.log('✅ [Socket] EventPresence updated:', {
+                    userId: updated.userId,
+                    eventId: updated.eventId,
+                    visibility: updated.visibility,
+                    hasLocation: !!(updated.lat && updated.lng)
+                });
+                
                 // Broadcast updated stats to anyone listening in room
                 const count = await EventPresence.countDocuments({ eventId, lastSeen: { $gte: new Date(Date.now() - 30 * 60000) } }); 
+                console.log('👥 [Socket] Total present in event:', count);
                 io.to(`event_${eventId}`).emit('presenceUpdate', { eventId, totalPresent: count });
 
                 if (visibility) {
                     io.to(`event_${eventId}`).emit('userVisible', { userId });
                 }
             } catch (err) {
-                console.error("Presence update error:", err);
+                console.error("❌ [Socket] Presence update error:", err);
             }
         });
 
