@@ -27,6 +27,23 @@ export const getAllEvents = async (req, res, next) => {
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
+            console.log('🔍 [getAllEvents] Fetching events with filters:', {
+                status: 'LIVE',
+                date: { $gte: startOfToday },
+                startOfToday: startOfToday.toISOString()
+            });
+
+            // First check total events in DB
+            const totalEventsInDB = await Event.countDocuments({});
+            const liveEvents = await Event.countDocuments({ status: 'LIVE' });
+            const futureEvents = await Event.countDocuments({ date: { $gte: startOfToday } });
+            
+            console.log('📊 [getAllEvents] Database stats:', {
+                totalEvents: totalEventsInDB,
+                liveEvents: liveEvents,
+                futureEvents: futureEvents
+            });
+
             // ⚡ ULTRA OPTIMIZED: Minimal fields + lean() + limit
             const results = await Event.find({ 
                 status: 'LIVE', 
@@ -41,6 +58,16 @@ export const getAllEvents = async (req, res, next) => {
             .skip(skip)
             .limit(limit)
             .lean(); // 3x faster
+
+            console.log('✅ [getAllEvents] Found events:', results.length);
+            if (results.length > 0) {
+                console.log('📋 [getAllEvents] First event:', {
+                    title: results[0].title,
+                    date: results[0].date,
+                    status: results[0].status,
+                    hostId: results[0].hostId
+                });
+            }
 
             // Calculate display price and occupancy
             return results.map(e => {
