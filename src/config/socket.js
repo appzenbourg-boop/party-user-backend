@@ -39,6 +39,13 @@ export const initSocket = (server) => {
         if (!users.has(userId)) users.set(userId, new Set());
         users.get(userId).add(socket.id);
         
+        console.log('🔌 [Socket] User connected:', { 
+            userId, 
+            socketId: socket.id, 
+            totalSockets: users.get(userId).size,
+            totalUsers: users.size 
+        });
+        
         // Native socket.io targeting
         socket.join(userId.toString());
 
@@ -126,38 +133,61 @@ export const initSocket = (server) => {
         // Handle sending messages instantly and persist to DB in background
         socket.on('send_message', async (data, callback) => {
             const { receiverId, content, tempId } = data;
+            console.log('💬 [send_message] Received:', { senderId: userId, receiverId, content: content?.substring(0, 50), tempId });
+            
             if (!receiverId || !content) {
+                console.warn('⚠️ [send_message] Missing fields:', { receiverId, hasContent: !!content });
                 if(callback) callback({ success: false, error: 'Missing fields' });
                 return;
             }
 
             const timestamp = new Date();
 
+            // Get sender info for notification
+            let senderName = 'Someone';
+            try {
+                const { User } = await import('../models/user.model.js');
+                const sender = await User.findById(userId).select('name').lean();
+                if (sender) senderName = sender.name;
+            } catch (err) {
+                console.warn('⚠️ [send_message] Could not fetch sender name:', err.message);
+            }
+
             // Emit to receiver immediately if online for sub-10ms delivery
             const receiverSockets = users.get(receiverId);
+            console.log('👥 [send_message] Receiver sockets:', { receiverId, socketCount: receiverSockets?.size || 0, allUsers: Array.from(users.keys()) });
+            
             if (receiverSockets) {
+                const payload = {
+                    tempId,
+                    senderId: userId,
+                    receiverId,
+                    content,
+                    timestamp,
+                    isRead: false,
+                    senderName
+                };
+                console.log('📤 [send_message] Emitting to receiver:', { receiverId, socketIds: Array.from(receiverSockets), payload });
+                
                 for (const sid of receiverSockets) {
-                    io.to(sid).emit('receive_message', {
-                        tempId, // Send back tempId so receiver can acknowledge if needed, or largely used by sender
-                        senderId: userId,
-                        receiverId,
-                        content,
-                        timestamp,
-                        isRead: false
-                    });
+                    io.to(sid).emit('receive_message', payload);
+                    console.log('✅ [send_message] Emitted to socket:', sid);
                 }
+            } else {
+                console.warn('⚠️ [send_message] Receiver not online:', receiverId);
             }
 
             // Acknowledge back to sender immediately so UI updates optimizing latency
             if (callback) {
                 callback({ success: true, tempId, timestamp });
+                console.log('✅ [send_message] Acknowledged to sender');
             }
 
             // Persist to MongoDB asynchronously in background
             try {
                 // Dynamically import Message to avoid circular dependencies if any
                 const { Message } = await import('../models/Message.js');
-                await Message.create({
+                const savedMsg = await Message.create({
                     sender: userId,
                     receiver: receiverId,
                     content,
@@ -166,8 +196,9 @@ export const initSocket = (server) => {
                     createdAt: timestamp,
                     updatedAt: timestamp
                 });
+                console.log('💾 [send_message] Saved to DB:', savedMsg._id);
             } catch (err) {
-                console.error('[Socket Chat] Failed to save message:', err);
+                console.error('❌ [Socket Chat] Failed to save message:', err);
             }
         });
 
@@ -192,11 +223,15 @@ export const initSocket = (server) => {
         });
 
         socket.on('disconnect', () => {
+            console.log('🔌 [Socket] User disconnecting:', { userId, socketId: socket.id });
             const userSockets = users.get(userId);
             if (userSockets) {
                 userSockets.delete(socket.id);
                 if (userSockets.size === 0) {
                     users.delete(userId);
+                    console.log('👋 [Socket] User fully disconnected:', userId);
+                } else {
+                    console.log('🔌 [Socket] User still has', userSockets.size, 'socket(s) connected');
                 }
             }
         });
