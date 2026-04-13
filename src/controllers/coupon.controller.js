@@ -167,7 +167,7 @@ export const buyCoupon = async (req, res, next) => {
 
 export const applyCoupon = async (req, res) => {
     try {
-        const { userCouponId, orderType, subtotal, eventId } = req.body; // Added eventId
+        const { userCouponId, orderType, subtotal, eventId, hostId } = req.body;
         const userId = req.user.id;
 
         const userCoupon = await UserCoupon.findOne({ _id: userCouponId, userId, isUsed: false, expiresAt: { $gt: new Date() } })
@@ -180,19 +180,25 @@ export const applyCoupon = async (req, res) => {
         const coupon = userCoupon.couponId;
         
         // ✅ HOST-SPECIFIC COUPON VALIDATION
-        if (coupon.hostId && eventId) {
-            const Event = (await import('../models/Event.js')).default;
-            const event = await Event.findById(eventId).select('hostId');
+        if (coupon.hostId) {
+            let eventHostId = hostId;
             
-            if (!event) {
-                return res.status(400).json({ success: false, message: 'Invalid event' });
+            // If hostId not provided directly, fetch from event
+            if (!eventHostId && eventId) {
+                const Event = (await import('../models/Event.js')).default;
+                const event = await Event.findById(eventId).select('hostId');
+                
+                if (!event) {
+                    return res.status(400).json({ success: false, message: 'Invalid event' });
+                }
+                eventHostId = event.hostId.toString();
             }
             
             // Check if event's hostId matches coupon's hostId
-            if (event.hostId.toString() !== coupon.hostId.toString()) {
+            if (!eventHostId || eventHostId.toString() !== coupon.hostId.toString()) {
                 return res.status(400).json({ 
                     success: false, 
-                    message: 'This coupon is only valid for specific venue events' 
+                    message: `This coupon is only valid for events by ${coupon.hostId?.name || coupon.hostId?.businessName || 'this host'}` 
                 });
             }
         }
