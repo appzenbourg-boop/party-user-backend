@@ -27,7 +27,10 @@ export const getAvailableCoupons = async (req, res) => {
 
         // Return all coupons so frontend can show SOLD OUT / INACTIVE states
         const coupons = await Coupon.find()
-            .select('-hostId')
+            .populate({
+                path: 'hostId',
+                select: 'name businessName profileImage logo'
+            })
             .sort({ isActive: -1, pointsCost: 1 }) // active first
             .lean();
 
@@ -56,7 +59,11 @@ export const getUserCoupons = async (req, res) => {
         })
         .populate({
             path: 'couponId',
-            select: 'title code discountType discountValue minPurchase applicableOn'
+            select: 'title code discountType discountValue minPurchase applicableOn',
+            populate: {
+                path: 'hostId',
+                select: 'name businessName profileImage logo'
+            }
         })
         .sort({ createdAt: -1 }) // Show latest first
         .lean();
