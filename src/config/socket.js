@@ -252,6 +252,76 @@ export const initSocket = (server) => {
             }
         });
 
+        // ─── Gift Request System ──────────────────────────────────────────
+        
+        // Handle sending gift request
+        socket.on('send_gift_request', async (data) => {
+            const senderId = socket.userId;
+            const { requestId, receiverId, item, message, eventId, senderName, senderImage } = data;
+            console.log('🎁 [send_gift_request] Received:', { senderId, receiverId, requestId, item: item?.name });
+            
+            if (!receiverId || !item || !requestId) {
+                console.warn('⚠️ [send_gift_request] Missing fields');
+                return;
+            }
+
+            // Emit to receiver immediately if online
+            const receiverSockets = users.get(receiverId);
+            console.log('👥 [send_gift_request] Receiver sockets:', { receiverId, socketCount: receiverSockets?.size || 0 });
+            
+            if (receiverSockets) {
+                const payload = {
+                    requestId,
+                    senderId,
+                    senderName,
+                    senderImage,
+                    receiverId,
+                    item,
+                    message,
+                    eventId,
+                    timestamp: new Date().toISOString()
+                };
+                console.log('📤 [send_gift_request] Emitting to receiver:', { receiverId, payload });
+                
+                for (const sid of receiverSockets) {
+                    io.to(sid).emit('receive_gift_request', payload);
+                    console.log('✅ [send_gift_request] Emitted to socket:', sid);
+                }
+            } else {
+                console.warn('⚠️ [send_gift_request] Receiver not online:', receiverId);
+            }
+        });
+
+        // Handle gift request accepted
+        socket.on('gift_request_accepted', async (data) => {
+            const { requestId, senderId, receiverId } = data;
+            console.log('✅ [gift_request_accepted] Received:', { requestId, senderId, receiverId });
+            
+            // Notify sender that gift was accepted
+            const senderSockets = users.get(senderId);
+            if (senderSockets) {
+                for (const sid of senderSockets) {
+                    io.to(sid).emit('gift_request_accepted', { requestId });
+                    console.log('✅ [gift_request_accepted] Notified sender:', senderId);
+                }
+            }
+        });
+
+        // Handle gift request rejected
+        socket.on('gift_request_rejected', async (data) => {
+            const { requestId, senderId, receiverId } = data;
+            console.log('❌ [gift_request_rejected] Received:', { requestId, senderId, receiverId });
+            
+            // Notify sender that gift was rejected
+            const senderSockets = users.get(senderId);
+            if (senderSockets) {
+                for (const sid of senderSockets) {
+                    io.to(sid).emit('gift_request_rejected', { requestId });
+                    console.log('❌ [gift_request_rejected] Notified sender:', senderId);
+                }
+            }
+        });
+
         socket.on('disconnect', () => {
             const userId = socket.userId;
             console.log('🔌 [Socket] User disconnecting:', { userId, socketId: socket.id });
