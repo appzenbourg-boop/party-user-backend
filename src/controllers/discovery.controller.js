@@ -19,7 +19,7 @@ const applyPrivacyOffset = (lat, lng) => {
     return { lat: lat + offsetLat, lng: lng + offsetLng };
 };
 
-// 1. Map / Presence
+// 1. Map / Presence - OPTIMIZED
 export const getNearbyUsers = async (req, res) => {
     try {
         const { eventId } = req.params;
@@ -27,63 +27,42 @@ export const getNearbyUsers = async (req, res) => {
 
         console.log('👥 [getNearbyUsers] Request:', { eventId, myUserId });
 
-        // Find users with visibility = true inside this event, excluding myself.
-        const thirtyMinsAgo = new Date(Date.now() - 30 * 60000);
-        const cacheKey = cacheService.formatKey('nearby', eventId, myUserId);
+        // Find users with visibility = true inside this event, excluding myself
+        // Increased time window to 60 minutes for better visibility
+        const sixtyMinsAgo = new Date(Date.now() - 60 * 60000);
         
-        // Skip cache for debugging
-        console.log('🔍 [getNearbyUsers] Querying EventPresence...');
         const presences = await EventPresence.find({
             eventId,
             userId: { $ne: myUserId },
             visibility: true,
-            lastSeen: { $gte: thirtyMinsAgo }
-        }).populate('userId', 'name username profileImage gender tags').lean();
+            lastSeen: { $gte: sixtyMinsAgo }
+        })
+        .populate('userId', 'name username profileImage gender tags')
+        .lean()
+        .exec();
 
-        console.log('👥 [getNearbyUsers] Found presences:', presences.length);
-        
-        // Also check total presences without filters
-        const totalPresences = await EventPresence.countDocuments({ eventId });
-        const visiblePresences = await EventPresence.countDocuments({ eventId, visibility: true });
-        const recentPresences = await EventPresence.countDocuments({ eventId, lastSeen: { $gte: thirtyMinsAgo } });
-        
-        console.log('📊 [getNearbyUsers] Stats:', {
-            total: totalPresences,
-            visible: visiblePresences,
-            recent: recentPresences,
-            thirtyMinsAgo: thirtyMinsAgo.toISOString()
-        });
-        
-        if (presences.length > 0) {
-            console.log('📋 [getNearbyUsers] First user:', {
-                name: presences[0].userId?.name,
-                username: presences[0].userId?.username,
-                visibility: presences[0].visibility,
-                lat: presences[0].lat,
-                lng: presences[0].lng,
-                lastSeen: presences[0].lastSeen
-            });
-        }
+        console.log('✅ [getNearbyUsers] Found:', presences.length, 'visible users');
 
         // Apply privacy offset mapping
-        const processed = presences.map(p => {
-            const { lat, lng } = applyPrivacyOffset(p.lat, p.lng);
-            return {
-                id: p.userId._id,
-                _id: p.userId._id,
-                name: p.userId.name,
-                username: p.userId.username,
-                image: p.userId.profileImage,
-                profileImage: p.userId.profileImage,
-                gender: p.userId.gender || 'Other',
-                tags: p.userId.tags || [],
-                lat,
-                lng,
-                distance: Math.floor(Math.random() * 45) + 5 // Mocked for standard return since they're in the same venue
-            };
-        });
+        const processed = presences
+            .filter(p => p.userId) // Ensure userId is populated
+            .map(p => {
+                const { lat, lng } = applyPrivacyOffset(p.lat || 0, p.lng || 0);
+                return {
+                    id: p.userId._id,
+                    _id: p.userId._id,
+                    name: p.userId.name,
+                    username: p.userId.username,
+                    image: p.userId.profileImage,
+                    profileImage: p.userId.profileImage,
+                    gender: p.userId.gender || 'Other',
+                    tags: p.userId.tags || [],
+                    lat,
+                    lng,
+                    distance: Math.floor(Math.random() * 45) + 5
+                };
+            });
 
-        console.log('✅ [getNearbyUsers] Returning:', processed.length, 'users');
         res.json({ success: true, data: processed });
     } catch (error) {
         console.error('❌ [getNearbyUsers] Error:', error.message);
