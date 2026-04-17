@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { registerSchema, loginSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, sendOtpSchema, verifyOtpSchema } from '../validators/auth.validator.js';
 import sendEmail from '../utils/sendEmail.js';
-import { sendSmsOtp, verifySmsOtp } from '../services/twilio.service.js';
+import { sendSmsOtp, verifySmsOtp } from '../services/sms.service.js';
 import { cacheService } from '../services/cache.service.js';
 
 // ── Username Generation for Google Users ────────────────────────────────────
