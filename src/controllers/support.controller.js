@@ -179,7 +179,7 @@ export const submitBugReport = async (req, res, next) => {
 
         const transporter = (await import('nodemailer')).default.createTransport({
             service: 'gmail',
-            auth: { user: process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.EMAIL_PASS }
+            auth: { user: process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.SMTP_PASSWORD || process.env.EMAIL_PASS }
         });
 
         const html = `
@@ -192,7 +192,7 @@ export const submitBugReport = async (req, res, next) => {
         `;
 
         transporter.sendMail({
-            from: `"STITCH Triage" <${process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
+            from: `"STITCH Triage" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
             to: 'devanshjais20@gmail.com',
             subject: `🐞 BUG: ${description.substring(0, 40)}`,
             html
@@ -210,7 +210,7 @@ export const submitSupportRequest = async (req, res, next) => {
 
         const transporter = (await import('nodemailer')).default.createTransport({
             service: 'gmail',
-            auth: { user: process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.EMAIL_PASS }
+            auth: { user: process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.SMTP_PASSWORD || process.env.EMAIL_PASS }
         });
 
         const html = `
@@ -221,7 +221,7 @@ export const submitSupportRequest = async (req, res, next) => {
         `;
 
         transporter.sendMail({
-            from: `"STITCH Support" <${process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
+            from: `"STITCH Support" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
             to: 'devanshjais20@gmail.com',
             subject: `🎫 Support Ticket: ${name}`,
             html: html
