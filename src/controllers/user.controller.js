@@ -185,7 +185,7 @@ export const getReferralData = async (req, res, next) => {
         
         res.status(200).json({ success: true, data: user });
     } catch (err) { 
-        console.error('getReferralData Error:', err);
+        false && console.error('getReferralData Error:', err);
         next(err); 
     }
 };
@@ -239,7 +239,7 @@ export const applyReferralCode = async (req, res, next) => {
             status: 'pending'
         });
 
-        console.log(`[applyReferralCode] ✅ User ${userId} used code of referrer ${referrer._id}. Pending 200pts for referrer.`);
+        false && console.log(`[applyReferralCode] ✅ User ${userId} used code of referrer ${referrer._id}. Pending 200pts for referrer.`);
 
         res.status(200).json({ 
             success: true, 
@@ -247,7 +247,7 @@ export const applyReferralCode = async (req, res, next) => {
             data: { loyaltyPoints: user.loyaltyPoints }
         });
     } catch (err) { 
-        console.error('applyReferralCode Error:', err);
+        false && console.error('applyReferralCode Error:', err);
         next(err); 
     }
 };

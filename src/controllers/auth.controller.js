@@ -90,7 +90,7 @@ export const register = async (req, res, next) => {
             subject: 'Email Verification - Entry Club',
             message
         }).catch(err => {
-            console.error('Background Email sending failed:', err.message);
+            false && console.error('Background Email sending failed:', err.message);
         });
 
         res.status(201).json({
@@ -130,13 +130,13 @@ export const sendOtp = async (req, res, next) => {
                         { otp: otpCode, createdAt: new Date() }, 
                         { upsert: true, new: true, setDefaultsOnInsert: true }
                     );
-                    console.log(`[AUTH] Email OTP saved for ${identifier}`);
+                    false && console.log(`[AUTH] Email OTP saved for ${identifier}`);
                     const emailMsg = `Your Entry Club one-time password is: ${otpCode}. It will expire in 5 minutes.`;
                     sendEmail({ email: identifier, subject: 'Your Login OTP - Entry Club', message: emailMsg })
-                        .then(() => console.log(`[AUTH] OTP Email sent to ${identifier}`))
-                        .catch(err => console.error('[AUTH] Background OTP Email failed:', err.message));
+                        .then(() => false && console.log(`[AUTH] OTP Email sent to ${identifier}`))
+                        .catch(err => false && console.error('[AUTH] Background OTP Email failed:', err.message));
                 } catch (err) {
-                    console.error('[AUTH] Background email OTP failed:', err.message);
+                    false && console.error('[AUTH] Background email OTP failed:', err.message);
                 }
             }, 0);
 
@@ -156,7 +156,7 @@ export const sendOtp = async (req, res, next) => {
                     { otp: otpCode, createdAt: new Date() },
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
-                console.log(`[AUTH BYPASS] Phone OTP for ${e164Phone}: ${otpCode}`);
+                false && console.log(`[AUTH BYPASS] Phone OTP for ${e164Phone}: ${otpCode}`);
                 return res.status(200).json({
                     success: true,
                     message: 'OTP sent (bypass mode)',
@@ -167,14 +167,14 @@ export const sendOtp = async (req, res, next) => {
             // 🔒 PRODUCTION: Use Twilio Verify with retry logic
             try {
                 await sendSmsOtp(e164Phone);
-                console.log(`[AUTH] Twilio OTP sent to ${e164Phone}`);
+                false && console.log(`[AUTH] Twilio OTP sent to ${e164Phone}`);
                 res.status(200).json({ 
                     success: true, 
                     message: 'OTP sent to your phone via SMS', 
                     data: { type: 'phone' } 
                 });
             } catch (twilioErr) {
-                console.error('[AUTH] Twilio sendSmsOtp failed:', twilioErr.message);
+                false && console.error('[AUTH] Twilio sendSmsOtp failed:', twilioErr.message);
                 
                 // Fallback to DB OTP if Twilio fails (graceful degradation)
                 const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -183,7 +183,7 @@ export const sendOtp = async (req, res, next) => {
                     { otp: fallbackOtp, createdAt: new Date() },
                     { upsert: true, new: true }
                 );
-                console.log(`[AUTH FALLBACK] Using DB OTP for ${e164Phone}: ${fallbackOtp}`);
+                false && console.log(`[AUTH FALLBACK] Using DB OTP for ${e164Phone}: ${fallbackOtp}`);
                 
                 return res.status(200).json({ 
                     success: true, 
@@ -220,7 +220,7 @@ export const verifyOtp = async (req, res, next) => {
                 const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
                 if (currentOtp) {
                     verified = true;
-                    Otp.deleteOne({ _id: currentOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                    Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                 } else {
                     return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
                 }
@@ -233,18 +233,18 @@ export const verifyOtp = async (req, res, next) => {
                         const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
                         if (dbOtp) {
                             verified = true;
-                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                         } else {
                             return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
                         }
                     }
                 } catch (twilioErr) {
-                    console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
+                    false && console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
                     // Fallback to DB OTP check
                     const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
                     if (dbOtp) {
                         verified = true;
-                        Otp.deleteOne({ _id: dbOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                        Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                     } else {
                         return res.status(500).json({ success: false, message: 'OTP verification service error. Please try again.' });
                     }
@@ -256,7 +256,7 @@ export const verifyOtp = async (req, res, next) => {
 
             if (currentOtp) {
                 verified = true;
-                Otp.deleteOne({ _id: currentOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
             } else {
                 return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
             }
@@ -272,7 +272,7 @@ export const verifyOtp = async (req, res, next) => {
         
         let user = null;
 
-        console.log('[Auth Debug] Attempting Login for:', identifierLower);
+        false && console.log('[Auth Debug] Attempting Login for:', identifierLower);
 
         // 🔒 STRICT ADMIN WHITELIST: Only these two can EVER have the ADMIN role
         const isAuthorizedAdmin = (identifierLower === whitelistEmail) || (identifierLower.replace(/\s/g, '').endsWith(whitelistPhone));
@@ -583,7 +583,7 @@ export const forgotPassword = async (req, res, next) => {
                 email: user.email,
                 subject: 'Password Reset Token',
                 message
-            }).catch(err => console.error('[AUTH] Background Reset Email failed:', err.message));
+            }).catch(err => false && console.error('[AUTH] Background Reset Email failed:', err.message));
 
             res.status(200).json({
                 success: true,
@@ -591,7 +591,7 @@ export const forgotPassword = async (req, res, next) => {
                 data: {}
             });
         } catch (err) {
-            console.error('Email sending failed:', err);
+            false && console.error('Email sending failed:', err);
             user.resetPasswordToken = undefined;
             user.resetPasswordExpire = undefined;
             await user.save({ validateBeforeSave: false });
@@ -693,7 +693,7 @@ export const completeOnboarding = async (req, res, next) => {
                    await User.findById(req.user.id);
 
         if (!user) {
-            console.error('[Onboarding] ID not found in ANY collection:', req.user.id);
+            false && console.error('[Onboarding] ID not found in ANY collection:', req.user.id);
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 

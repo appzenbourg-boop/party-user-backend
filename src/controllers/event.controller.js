@@ -27,7 +27,7 @@ export const getAllEvents = async (req, res, next) => {
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-            console.log('🔍 [getAllEvents] Fetching events with filters:', {
+            false && console.log('🔍 [getAllEvents] Fetching events with filters:', {
                 status: 'LIVE',
                 date: { $gte: startOfToday },
                 startOfToday: startOfToday.toISOString()
@@ -38,7 +38,7 @@ export const getAllEvents = async (req, res, next) => {
             const liveEvents = await Event.countDocuments({ status: 'LIVE' });
             const futureEvents = await Event.countDocuments({ date: { $gte: startOfToday } });
             
-            console.log('📊 [getAllEvents] Database stats:', {
+            false && console.log('📊 [getAllEvents] Database stats:', {
                 totalEvents: totalEventsInDB,
                 liveEvents: liveEvents,
                 futureEvents: futureEvents
@@ -59,9 +59,9 @@ export const getAllEvents = async (req, res, next) => {
             .limit(limit)
             .lean(); // 3x faster
 
-            console.log('✅ [getAllEvents] Found events:', results.length);
+            false && console.log('✅ [getAllEvents] Found events:', results.length);
             if (results.length > 0) {
-                console.log('📋 [getAllEvents] First event:', {
+                false && console.log('📋 [getAllEvents] First event:', {
                     title: results[0].title,
                     date: results[0].date,
                     status: results[0].status,
@@ -164,7 +164,7 @@ export const getEventBasic = async (req, res, next) => {
         }
 
         // Fire and forget cache write to save response time!
-        cacheService.set(cacheKey, item, 600).catch(console.error);
+        cacheService.set(cacheKey, item, 600).catch(() => {});
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
         res.status(200).json({ success: true, data: item });
     } catch (err) { next(err); }
@@ -190,7 +190,7 @@ export const getEventDetails = async (req, res, next) => {
             
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
-        cacheService.set(cacheKey, event, 300).catch(console.error);
+        cacheService.set(cacheKey, event, 300).catch(() => {});
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         return res.status(200).json({ success: true, data: event });
     } catch (err) { next(err); }
@@ -214,7 +214,7 @@ export const getEventTickets = async (req, res, next) => {
             floors: event.floors || []
         };
         
-        cacheService.set(cacheKey, data, 300).catch(console.error);
+        cacheService.set(cacheKey, data, 300).catch(() => {});
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         res.status(200).json({ success: true, data });
     } catch (err) { next(err); }
@@ -235,7 +235,7 @@ export const getEventFull = async (req, res, next) => {
         const cacheKey = cacheService.formatKey('event_full_v1', id);
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            console.log(`[⚡ OPTIMIZED] getEventFull (CACHED): ${Date.now() - startTime}ms`);
+            false && console.log(`[⚡ OPTIMIZED] getEventFull (CACHED): ${Date.now() - startTime}ms`);
             res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
             return res.status(200).json({ success: true, data: cached, cached: true });
         }
@@ -253,7 +253,7 @@ export const getEventFull = async (req, res, next) => {
                 .lean(),
             Floor.find({ eventId: id }).select('name capacity price type').lean()
         ]);
-        console.log(`[⚡ DB] Parallel queries: ${Date.now() - dbStart}ms`);
+        false && console.log(`[⚡ DB] Parallel queries: ${Date.now() - dbStart}ms`);
 
         if (!event) {
             return res.status(404).json({ success: false, message: 'Event not found' });
@@ -320,16 +320,16 @@ export const getEventFull = async (req, res, next) => {
         };
 
         const payloadSize = JSON.stringify(data).length;
-        console.log(`[⚡ PAYLOAD] Size: ${(payloadSize / 1024).toFixed(2)}KB`);
+        false && console.log(`[⚡ PAYLOAD] Size: ${(payloadSize / 1024).toFixed(2)}KB`);
 
         // ⚡ STEP 7: Cache for 5 minutes (Fire-and-forget so it doesn't block API)
-        cacheService.set(cacheKey, data, 300).catch(console.error);
+        cacheService.set(cacheKey, data, 300).catch(() => {});
         
-        console.log(`[⚡ OPTIMIZED] getEventFull (DB): ${Date.now() - startTime}ms`);
+        false && console.log(`[⚡ OPTIMIZED] getEventFull (DB): ${Date.now() - startTime}ms`);
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
         res.status(200).json({ success: true, data, cached: false });
     } catch (err) {
-        console.error(`[⚡ ERROR] getEventFull failed: ${Date.now() - startTime}ms`, err.message);
+        false && console.error(`[⚡ ERROR] getEventFull failed: ${Date.now() - startTime}ms`, err.message);
         next(err);
     }
 };
@@ -454,7 +454,7 @@ export const bookEvent = async (req, res, next) => {
                 cacheService.delete(cacheService.formatKey('booking', req.user.id, eventId)),
                 cacheService.delete(cacheService.formatKey('my-bookings', req.user.id))
             ]);
-        })().catch(e => console.error('[Event Sync Fail]', e.message));
+        })().catch(e => false && console.error('[Event Sync Fail]', e.message));
 
         res.status(201).json({ success: true, message: 'Experience Booked!', data: booking });
     } catch (err) { next(err); }
@@ -518,17 +518,17 @@ export const getActiveEvent = async (req, res, next) => {
         
         const forceRefresh = req.query.refresh === 'true';
         if (forceRefresh) {
-            console.log('🔄 [getActiveEvent] Force refresh requested, clearing cache');
+            false && console.log('🔄 [getActiveEvent] Force refresh requested, clearing cache');
             await cacheService.delete(cacheKey);
         }
         
         const cached = await cacheService.get(cacheKey);
         if (cached && !forceRefresh) {
-            console.log('✅ [getActiveEvent] Cache HIT for user:', req.user.id);
+            false && console.log('✅ [getActiveEvent] Cache HIT for user:', req.user.id);
             return res.status(200).json({ success: true, data: cached });
         }
 
-        console.log('🔍 [getActiveEvent] Querying database for user:', req.user.id);
+        false && console.log('🔍 [getActiveEvent] Querying database for user:', req.user.id);
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
             status: { $in: ['approved', 'active', 'checked_in'] }
@@ -540,11 +540,11 @@ export const getActiveEvent = async (req, res, next) => {
         })
         .lean();
         
-        console.log('📦 [getActiveEvent] Raw booking:', JSON.stringify(booking, null, 2));
+        false && console.log('📦 [getActiveEvent] Raw booking:', JSON.stringify(booking, null, 2));
         
         if (booking && booking.hostId) {
             booking.hostId = booking.hostId.toString();
-            console.log('🎯 [getActiveEvent] Converted hostId to string:', booking.hostId);
+            false && console.log('🎯 [getActiveEvent] Converted hostId to string:', booking.hostId);
             
             // Get live crowd count for this event
             const eventId = booking.eventId?._id || booking.eventId;
@@ -555,17 +555,17 @@ export const getActiveEvent = async (req, res, next) => {
                 });
                 
                 booking.liveCrowd = checkedInCount;
-                console.log('👥 [getActiveEvent] Live crowd count:', checkedInCount);
+                false && console.log('👥 [getActiveEvent] Live crowd count:', checkedInCount);
             }
             
             await cacheService.set(cacheKey, booking, 120);
         } else {
-            console.log('⚠️ [getActiveEvent] No active booking found');
+            false && console.log('⚠️ [getActiveEvent] No active booking found');
         }
         
         res.status(200).json({ success: true, data: booking || null });
     } catch (err) { 
-        console.error('❌ [getActiveEvent] ERROR:', err.message);
+        false && console.error('❌ [getActiveEvent] ERROR:', err.message);
         next(err); 
     }
 };
@@ -612,10 +612,10 @@ export const getHostMenu = async (req, res, next) => {
 export const getHostGifts = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        console.log('🎁 [getHostGifts] Request for hostId:', hostId);
+        false && console.log('🎁 [getHostGifts] Request for hostId:', hostId);
         
         if (!hostId) {
-            console.log('🎁 [getHostGifts] No hostId provided');
+            false && console.log('🎁 [getHostGifts] No hostId provided');
             return res.status(200).json({ success: true, data: [] });
         }
 
@@ -624,7 +624,7 @@ export const getHostGifts = async (req, res, next) => {
         // Check cache first
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            console.log('🎁 [getHostGifts] Cache HIT:', typeof cached === 'string' ? JSON.parse(cached).length : cached.length, 'items');
+            false && console.log('🎁 [getHostGifts] Cache HIT:', typeof cached === 'string' ? JSON.parse(cached).length : cached.length, 'items');
             return res.status(200).json({ 
                 success: true, 
                 data: typeof cached === 'string' ? JSON.parse(cached) : cached,
@@ -632,24 +632,24 @@ export const getHostGifts = async (req, res, next) => {
             });
         }
 
-        console.log('🎁 [getHostGifts] Cache MISS, querying database...');
+        false && console.log('🎁 [getHostGifts] Cache MISS, querying database...');
         let gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
             .select('name description price category image inStock')
             .sort({ category: 1 })
             .lean();
 
-        console.log('🎁 [getHostGifts] Database returned:', gifts.length, 'items');
+        false && console.log('🎁 [getHostGifts] Database returned:', gifts.length, 'items');
         
         if (gifts.length > 0) {
-            console.log('🎁 [getHostGifts] Sample gift:', JSON.stringify(gifts[0]));
+            false && console.log('🎁 [getHostGifts] Sample gift:', JSON.stringify(gifts[0]));
         }
 
         await cacheService.set(cacheKey, gifts, 600);
-        console.log('🎁 [getHostGifts] Cached for 10 minutes');
+        false && console.log('🎁 [getHostGifts] Cached for 10 minutes');
         
         res.status(200).json({ success: true, data: gifts, count: gifts.length });
     } catch (err) { 
-        console.error('🎁 [getHostGifts] ERROR:', err.message);
+        false && console.error('🎁 [getHostGifts] ERROR:', err.message);
         next(err); 
     }
 };
