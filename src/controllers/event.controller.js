@@ -656,47 +656,66 @@ export const getHostMenu = async (req, res, next) => {
 export const getHostGifts = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        false && console.log('🎁 [getHostGifts] Request for hostId:', hostId);
-        
-        if (!hostId) {
-            false && console.log('🎁 [getHostGifts] No hostId provided');
-            return res.status(200).json({ success: true, data: [] });
+        console.log(`\n🎁 [getHostGifts] Called for hostId: ${hostId} by user: ${req.user.id}`);
+
+        if (!hostId) return res.status(200).json({ success: true, data: [] });
+
+        // ── GATE 1+2: Find user's active booking with this host for a LIVE event ─
+        const activeBooking = await Booking.findOne({
+            userId: req.user.id,
+            hostId,
+            status: { $in: ['active', 'checked_in', 'confirmed', 'approved'] }
+        }).select('eventId').lean();
+
+        if (!activeBooking) {
+            console.log(`🚫 [getHostGifts] No active booking for user ${req.user.id} with host ${hostId} — gifts BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'You need to book an active event to access gifts.' });
         }
+
+        // ── GATE 2: Verify the booked event is not expired ────────────────────
+        const bookedEvent = await Event.findById(activeBooking.eventId).select('status date title').lean();
+        if (bookedEvent) {
+            console.log(`📅 [getHostGifts] Booked event: "${bookedEvent.title}" | Status: ${bookedEvent.status} | Date: ${bookedEvent.date}`);
+
+            if (bookedEvent.status === 'EXPIRED' || bookedEvent.status === 'CANCELLED' || bookedEvent.status === 'ENDED') {
+                console.log(`🚫 [getHostGifts] Event status "${bookedEvent.status}" — gifts BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access gifts.' });
+            }
+
+            const now = new Date();
+            const eventEndOfDay = new Date(bookedEvent.date);
+            eventEndOfDay.setHours(23, 59, 59, 999);
+            if (now > eventEndOfDay) {
+                console.log(`🚫 [getHostGifts] Event date is in the past — gifts BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access gifts.' });
+            }
+        }
+
+        console.log(`✅ [getHostGifts] All gates passed — fetching gifts`);
 
         const cacheKey = cacheService.formatKey('host_gifts', hostId);
-        
-        // Check cache first
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            false && console.log('🎁 [getHostGifts] Cache HIT:', typeof cached === 'string' ? JSON.parse(cached).length : cached.length, 'items');
-            return res.status(200).json({ 
-                success: true, 
-                data: typeof cached === 'string' ? JSON.parse(cached) : cached,
-                cached: true 
-            });
+            const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
+            console.log(`✅ [getHostGifts] Gifts response (CACHED): ${data.length} items`);
+            return res.status(200).json({ success: true, data, cached: true });
         }
 
-        false && console.log('🎁 [getHostGifts] Cache MISS, querying database...');
-        let gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
+        const gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
             .select('name description price category image inStock')
             .sort({ category: 1 })
             .lean();
 
-        false && console.log('🎁 [getHostGifts] Database returned:', gifts.length, 'items');
-        
-        if (gifts.length > 0) {
-            false && console.log('🎁 [getHostGifts] Sample gift:', JSON.stringify(gifts[0]));
-        }
+        console.log(`✅ [getHostGifts] Gifts response: ${gifts.length} items`);
 
         await cacheService.set(cacheKey, gifts, 600);
-        false && console.log('🎁 [getHostGifts] Cached for 10 minutes');
-        
         res.status(200).json({ success: true, data: gifts, count: gifts.length });
-    } catch (err) { 
-        false && console.error('🎁 [getHostGifts] ERROR:', err.message);
-        next(err); 
+    } catch (err) {
+        console.error('❌ [getHostGifts] ERROR:', err.message);
+        next(err);
     }
 };
+
 
 export const reportEvent = async (req, res, next) => {
     try {
