@@ -265,13 +265,29 @@ export const submitIncidentReport = async (req, res, next) => {
             });
         }
 
+        let finalTable = tableId;
+        let finalZone = zone;
+
+        if (!finalTable || finalTable === 'N/A' || finalTable === '--' || finalTable.trim() === '' || !finalZone) {
+            const { Booking } = await import('../models/booking.model.js');
+            const booking = await Booking.findOne({ userId, eventId: finalEventId })
+                .select('tableId ticketType')
+                .sort({ createdAt: -1 })
+                .lean();
+                
+            if (booking) {
+                finalTable = (booking.tableId && booking.tableId.trim() !== '') ? booking.tableId : (finalTable && finalTable !== 'N/A' ? finalTable : 'General Entry');
+                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : 'Main Floor');
+            }
+        }
+
         const report = await IssueReport.create({ 
             userId, 
             eventId: finalEventId,
             hostId: finalHostId,
             type, 
-            zone, 
-            tableId, 
+            zone: finalZone || 'Main Floor', 
+            tableId: finalTable || 'General Entry', 
             message, 
             status: 'open' 
         });
