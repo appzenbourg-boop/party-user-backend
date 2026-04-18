@@ -562,17 +562,14 @@ export const getActiveEvent = async (req, res, next) => {
         
         const forceRefresh = req.query.refresh === 'true';
         if (forceRefresh) {
-            false && console.log('🔄 [getActiveEvent] Force refresh requested, clearing cache');
             await cacheService.delete(cacheKey);
         }
         
         const cached = await cacheService.get(cacheKey);
         if (cached && !forceRefresh) {
-            false && console.log('✅ [getActiveEvent] Cache HIT for user:', req.user.id);
             return res.status(200).json({ success: true, data: cached });
         }
 
-        false && console.log('🔍 [getActiveEvent] Querying database for user:', req.user.id);
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
             status: { $in: ['approved', 'active', 'checked_in'] }
@@ -580,15 +577,30 @@ export const getActiveEvent = async (req, res, next) => {
         .select('eventId hostId status tableId zone createdAt')
         .populate({
             path: 'eventId',
-            select: 'title coverImage startTime venueId'
+            select: 'title coverImage startTime venueId date status'
         })
         .lean();
         
-        false && console.log('📦 [getActiveEvent] Raw booking:', JSON.stringify(booking, null, 2));
-        
         if (booking && booking.hostId) {
+            // ── GATE: Validate the booked event is still live & not past its date ──
+            const bookedEvent = booking.eventId;
+            if (bookedEvent) {
+                const expiredStatuses = ['EXPIRED', 'CANCELLED', 'ENDED', 'COMPLETED'];
+                const isStatusExpired = expiredStatuses.includes(bookedEvent.status);
+                const now = new Date();
+                const eventEndOfDay = new Date(bookedEvent.date);
+                eventEndOfDay.setHours(23, 59, 59, 999);
+                const isDatePast = now > eventEndOfDay;
+
+                if (isStatusExpired || isDatePast) {
+                    console.log(`🚫 [getActiveEvent] Event "${bookedEvent.title}" is completed (status: ${bookedEvent.status}, date: ${bookedEvent.date}) — returning null`);
+                    // Clear stale cache so it's not served again
+                    await cacheService.delete(cacheKey);
+                    return res.status(200).json({ success: true, data: null });
+                }
+            }
+
             booking.hostId = booking.hostId.toString();
-            false && console.log('🎯 [getActiveEvent] Converted hostId to string:', booking.hostId);
             
             // Get live crowd count for this event
             const eventId = booking.eventId?._id || booking.eventId;
@@ -597,44 +609,72 @@ export const getActiveEvent = async (req, res, next) => {
                     eventId: eventId,
                     status: { $in: ['checked_in', 'active'] }
                 });
-                
                 booking.liveCrowd = checkedInCount;
-                false && console.log('👥 [getActiveEvent] Live crowd count:', checkedInCount);
             }
             
             await cacheService.set(cacheKey, booking, 120);
-        } else {
-            false && console.log('⚠️ [getActiveEvent] No active booking found');
         }
         
         res.status(200).json({ success: true, data: booking || null });
     } catch (err) { 
-        false && console.error('❌ [getActiveEvent] ERROR:', err.message);
         next(err); 
     }
 };
 
-// ── PUBLIC: Get host's menu items by hostId (post-booking) ─────────────────
+// ── GATED: Get host's menu items — requires active, non-expired booking ────
 export const getHostMenu = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        if (!hostId) return res.status(200).json({ success: true, data: [] });
+        if (!hostId) return res.status(200).json({ success: true, data: [], message: 'No host specified.' });
 
+        console.log(`\n📡 [getHostMenu] Called for hostId: ${hostId} by user: ${req.user.id}`);
+
+        // ── GATE: User must have an active booking for a live event with this host ──
+        const activeBooking = await Booking.findOne({
+            userId: req.user.id,
+            hostId,
+            status: { $in: ['active', 'checked_in', 'confirmed', 'approved'] }
+        }).select('eventId').lean();
+
+        if (!activeBooking) {
+            console.log(`🚫 [getHostMenu] No active booking for user ${req.user.id} with host ${hostId} — BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'You need to book an active event to access the menu.' });
+        }
+
+        // ── GATE 2: Verify the booked event is not expired/past ──────────────────
+        const bookedEvent = await Event.findById(activeBooking.eventId).select('status date title').lean();
+        if (bookedEvent) {
+            console.log(`📅 [getHostMenu] Event: "${bookedEvent.title}" | Status: ${bookedEvent.status} | Date: ${bookedEvent.date}`);
+
+            const expiredStatuses = ['EXPIRED', 'CANCELLED', 'ENDED', 'COMPLETED'];
+            if (expiredStatuses.includes(bookedEvent.status)) {
+                console.log(`🚫 [getHostMenu] Event status "${bookedEvent.status}" — menu BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
+            }
+
+            const now = new Date();
+            const eventEndOfDay = new Date(bookedEvent.date);
+            eventEndOfDay.setHours(23, 59, 59, 999);
+            if (now > eventEndOfDay) {
+                console.log(`🚫 [getHostMenu] Event date is in the past — menu BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
+            }
+        }
+
+        console.log(`✅ [getHostMenu] Gates passed — fetching menu for host: ${hostId}`);
+
+        // Check cache only after gates pass
         const cacheKey = cacheService.formatKey('host_menu', hostId);
-        
-        // Check cache first
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            return res.status(200).json({ 
-                success: true, 
-                data: typeof cached === 'string' ? JSON.parse(cached) : cached,
-                cached: true 
-            });
+            const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
+            console.log(`✅ [getHostMenu] Menu response (CACHED): ${data.length} items`);
+            return res.status(200).json({ success: true, data, cached: true });
         }
 
         const SELECT = 'name price category image desc inStock';
 
-        let items = await MenuItem.find({ hostId })
+        let items = await MenuItem.find({ hostId, inStock: true })
             .select(SELECT)
             .sort({ category: 1 })
             .lean();
@@ -642,9 +682,11 @@ export const getHostMenu = async (req, res, next) => {
         if (items.length === 0) {
             const venue = await Venue.findOne({ hostId }).select('_id').lean();
             if (venue) {
-                items = await MenuItem.find({ venueId: venue._id }).select(SELECT).sort({ category: 1 }).lean();
+                items = await MenuItem.find({ venueId: venue._id, inStock: true }).select(SELECT).sort({ category: 1 }).lean();
             }
         }
+
+        console.log(`✅ [getHostMenu] Menu response: ${items.length} items`);
 
         const data = items.map(i => ({ ...i, type: i.category, description: i.desc || '' }));
         await cacheService.set(cacheKey, data, 600);
