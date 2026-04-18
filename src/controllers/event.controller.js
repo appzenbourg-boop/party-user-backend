@@ -719,7 +719,8 @@ export const getHostGifts = async (req, res, next) => {
         if (bookedEvent) {
             console.log(`📅 [getHostGifts] Booked event: "${bookedEvent.title}" | Status: ${bookedEvent.status} | Date: ${bookedEvent.date}`);
 
-            if (bookedEvent.status === 'EXPIRED' || bookedEvent.status === 'CANCELLED' || bookedEvent.status === 'ENDED') {
+            const expiredStatuses = ['EXPIRED', 'CANCELLED', 'ENDED', 'COMPLETED'];
+            if (expiredStatuses.includes(bookedEvent.status)) {
                 console.log(`🚫 [getHostGifts] Event status "${bookedEvent.status}" — gifts BLOCKED`);
                 return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access gifts.' });
             }

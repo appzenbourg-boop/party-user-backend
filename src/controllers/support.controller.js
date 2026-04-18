@@ -165,6 +165,9 @@ export const deleteSupportMessage = async (req, res, next) => {
 // --- TECHNICAL TRIAGE & BUG REPORTING ---
 export const submitBugReport = async (req, res, next) => {
     try {
+        console.log('\n=============================================');
+        console.log('📡 [API HIT] /user/report-bug Triggered');
+        console.log('=============================================');
         const { description, images, metadata } = req.body;
         const { User } = await import('../models/user.model.js');
         const user = await User.findById(req.user.id).select('name email username profileImage').lean();
@@ -191,6 +194,7 @@ export const submitBugReport = async (req, res, next) => {
             ${uploadedUrls.length > 0 ? uploadedUrls.map(url => `<img src="${url}" width="200" style="margin: 5px;"/>`).join('') : ''}
         `;
 
+        console.log('⏳ [Nodemailer] Dispatching Bug Report over network...');
         transporter.sendMail({
             from: `"STITCH Triage" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
             to: 'devanshjais20@gmail.com',
@@ -206,6 +210,9 @@ export const submitBugReport = async (req, res, next) => {
 
 export const submitSupportRequest = async (req, res, next) => {
     try {
+        console.log('\n=============================================');
+        console.log('📡 [API HIT] /user/support-ticket Triggered');
+        console.log('=============================================');
         const { name, message } = req.body;
         const { User } = await import('../models/user.model.js');
         const user = await User.findById(req.user.id).select('email username').lean();
@@ -222,6 +229,7 @@ export const submitSupportRequest = async (req, res, next) => {
             <p>${message}</p>
         `;
 
+        console.log('⏳ [Nodemailer] Dispatching Support Ticket over network...');
         transporter.sendMail({
             from: `"STITCH Support" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
             to: 'devanshjais20@gmail.com',
@@ -311,15 +319,28 @@ export const submitIncidentReport = async (req, res, next) => {
 
 export const submitReview = async (req, res, next) => {
     try {
-        const { eventId, hostId, rating, comment } = req.body;
+        const { eventId, hostId, vibe, service, music, feedback, isAnonymous } = req.body;
         const userId = req.user.id;
 
-        if (!eventId || !rating) {
-            return res.status(400).json({ success: false, message: 'eventId and rating are required' });
+        if (!eventId && !hostId) {
+            return res.status(400).json({ success: false, message: 'eventId or hostId is required' });
         }
 
+        const vScore = Number(vibe) || 1;
+        const sScore = Number(service) || 1;
+        const mScore = Number(music) || 1;
+        const avgScore = (vScore + sScore + mScore) / 3;
+
         const { Review } = await import('../models/Review.js');
-        const review = await Review.create({ userId, eventId, hostId, rating, comment });
+        const review = await Review.create({ 
+            userId, 
+            eventId, 
+            hostId, 
+            scores: { vibe: vScore, service: sScore, music: mScore },
+            avgScore,
+            feedback,
+            isAnonymous: Boolean(isAnonymous)
+        });
 
         res.status(201).json({ success: true, message: 'Review submitted', data: review });
     } catch (err) { next(err); }
