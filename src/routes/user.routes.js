@@ -11,7 +11,7 @@ import {
 } from "../controllers/event.controller.js";
 
 import {
-    getAllVenues, getVenueById
+    getAllVenues, getVenueById, getVenueByHostId
 } from "../controllers/venue.controller.js";
 
 import {
@@ -69,6 +69,7 @@ router.get('/events/:eventId/my-booking', getEventBooking);
 // --- VENUES (Discovery) ---
 router.get('/venues', getAllVenues);
 router.get('/venues/:id', getVenueById);
+router.get('/venues/host/:hostId', getVenueByHostId);
 
 // --- HOST CATALOG (post-booking ordering) ---
 router.get('/host/:hostId/menu', getHostMenu);

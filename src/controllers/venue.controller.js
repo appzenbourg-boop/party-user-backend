@@ -30,6 +30,22 @@ export const getVenueById = async (req, res, next) => {
     } catch (err) { next(err); }
 };
 
+export const getVenueByHostId = async (req, res, next) => {
+    try {
+        const { hostId } = req.params;
+        const venue = await Venue.findOne({ hostId }).lean();
+        if (!venue) return res.status(404).json({ success: false, message: 'Venue not found for this host' });
+
+        // Fetch ALL media from this host — no admin approval required
+        const media = await Media.find({ hostId })
+        .select('url type category fileName createdAt')
+        .sort({ createdAt: -1 })
+        .lean();
+
+        res.status(200).json({ success: true, data: { ...venue, media } });
+    } catch (err) { next(err); }
+};
+
 
 export const getVenueProfile = async (req, res, next) => {
     try {
