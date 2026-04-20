@@ -94,11 +94,21 @@ export const getAllEvents = async (req, res, next) => {
                     minPrice = e.price;
                 }
                 
-                const totalCapacity = tickets.reduce((sum, t) => sum + (t.capacity || 0), 0) || 100;
-                const totalSold = tickets.reduce((sum, t) => sum + (t.sold || 0), 0);
-                const occupancy = totalCapacity > 0 
-                    ? Math.min(Math.round((totalSold / totalCapacity) * 100), 100)
-                    : 20 + Math.floor(Math.random() * 40);
+                let totalSold = tickets.reduce((sum, t) => sum + (t.sold || 0), 0);
+                // Fallback to top-level attendeeCount if tickets are misconfigured or sold separately
+                if ((e.attendeeCount || 0) > totalSold) {
+                    totalSold = e.attendeeCount;
+                }
+
+                let totalCapacity = tickets.reduce((sum, t) => sum + (t.capacity || 0), 0) + floors.reduce((sum, f) => sum + (f.capacity || 0), 0);
+                if (totalCapacity === 0) totalCapacity = 100; // sensible default for ticketless events
+
+                // Only fake data mildly if completely empty to encourage first buyers, otherwise be exact
+                let occupancy = Math.min(Math.round((totalSold / totalCapacity) * 100), 100);
+                if (occupancy === 0 && (e.attendeeCount || 0) === 0 && totalSold === 0) {
+                    // Start at realistically small seed (e.g. 5-15%) to avoid looking dead, but only if 0 attendees
+                    occupancy = 5 + Math.floor(Math.random() * 10);
+                }
 
                 return {
                     _id: e._id,

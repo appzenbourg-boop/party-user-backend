@@ -99,8 +99,10 @@ export const verifyPayment = async (req, res, next) => {
                 paymentStatus: 'paid'
             });
 
-            // Immediately bust booking cache so My Bookings shows the new booking right away
+            // Immediately bust booking and event cache so My Bookings and Home show the new stats right away
             await cacheService.delete(`my_bookings_${userId}`);
+            await cacheService.clearPrefix('events:list');
+            await cacheService.delete(`event_${eventId}`);
 
             // 2. Background tasks (non-blocking)
             const tasks = [];
@@ -108,10 +110,12 @@ export const verifyPayment = async (req, res, next) => {
             // Atomic sold count update (using cleaned type for match)
             tasks.push(Event.updateOne(
                 { _id: eventId, "tickets.type": cleanTicketType },
-                { $inc: { "tickets.$.sold": numGuests } }
-            ).then(res => {
+                { $inc: { "tickets.$.sold": numGuests, attendeeCount: numGuests } }
+            ).then(async (res) => {
                 if (res.modifiedCount === 0) {
-                    false && console.warn(`[verifyPayment] ⚠️ Sold count NOT updated. Ticket "${cleanTicketType}" not found in Event ${eventId}`);
+                    false && console.warn(`[verifyPayment] ⚠️ Sold count NOT updated in tickets array. Ticket "${cleanTicketType}" not found in Event ${eventId}`);
+                    // Fallback: at least update the top level attendeeCount if exact ticket match failed
+                    await Event.updateOne({ _id: eventId }, { $inc: { attendeeCount: numGuests } });
                 }
             }).catch(err => false && console.error('[Event Sold Count Error]', err.message)));
 

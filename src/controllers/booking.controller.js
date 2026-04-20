@@ -103,12 +103,14 @@ export const getMyFoodOrders = async (req, res, next) => {
         const query = {
             $or: [
                 { userId: req.user.id },
-                { receiverId: req.user.id }
+                { receiverId: req.user.id },
+                { senderId: req.user.id }
             ]
         };
         if (status) query.status = status;
 
-        // ⚡ OPTIMIZED: Fetch both FoodOrders and DrinkRequests
+        // ⚡ OPTIMIZED: Fetch both FoodOrders and DrinkRequests up to required limit
+        const effectiveLimit = skip + limit;
         const [foodOrders, drinkRequests] = await Promise.all([
             FoodOrder.find(query)
                 .select('eventId totalAmount createdAt status items type userId receiverId senderId')
@@ -116,6 +118,7 @@ export const getMyFoodOrders = async (req, res, next) => {
                 .populate({ path: 'senderId', select: 'name' })
                 .populate({ path: 'receiverId', select: 'name' })
                 .sort({ createdAt: -1 })
+                .limit(effectiveLimit)
                 .lean(),
             DrinkRequest.find(query)
                 .select('eventId totalAmount createdAt status items type userId receiverId senderId')
@@ -123,15 +126,23 @@ export const getMyFoodOrders = async (req, res, next) => {
                 .populate({ path: 'senderId', select: 'name' })
                 .populate({ path: 'receiverId', select: 'name' })
                 .sort({ createdAt: -1 })
+                .limit(effectiveLimit)
                 .lean()
         ]);
 
+        // Add type: 'gift' to DrinkRequests so frontend gift labeling works
+        const typedDrinkRequests = drinkRequests.map(dr => ({
+            ...dr,
+            type: 'gift'
+        }));
+
         // Combine and sort by date
-        const allOrders = [...foodOrders, ...drinkRequests]
+        const allOrders = [...foodOrders, ...typedDrinkRequests]
             .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
             .slice(skip, skip + limit);
 
-        const total = foodOrders.length + drinkRequests.length;
+        // Approximate total
+        const total = await FoodOrder.countDocuments(query) + await DrinkRequest.countDocuments(query);
 
         const result = {
             orders: allOrders,
