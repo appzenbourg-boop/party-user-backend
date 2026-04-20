@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Message } from '../models/Message.js';
 import { User } from '../models/user.model.js';
 
@@ -62,6 +63,81 @@ export const markAsRead = async (req, res) => {
         res.status(200).json({ success: true, message: 'Messages marked as read' });
     } catch (error) {
         console.error('markAsRead Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+/**
+ * GET /api/v1/chat/peers
+ * Returns all unique users the logged-in user has chatted with,
+ * along with their last message and unread count.
+ * Used to populate the Conversations screen on app load.
+ */
+export const getChatPeers = async (req, res) => {
+    try {
+        const userId = new mongoose.Types.ObjectId(req.user.id);
+
+        const conversations = await Message.aggregate([
+            // Step 1: Only messages involving this user
+            { $match: { $or: [{ sender: userId }, { receiver: userId }] } },
+
+            // Step 2: Sort newest first within each group
+            { $sort: { createdAt: -1 } },
+
+            // Step 3: Group by the OTHER user (the peer)
+            {
+                $group: {
+                    _id: {
+                        $cond: [{ $eq: ['$sender', userId] }, '$receiver', '$sender']
+                    },
+                    lastMessage:   { $first: '$content' },
+                    lastMessageAt: { $first: '$createdAt' },
+                    lastSenderId:  { $first: '$sender' },
+                    unreadCount: {
+                        $sum: {
+                            $cond: [
+                                { $and: [
+                                    { $eq: ['$receiver', userId] },
+                                    { $eq: ['$isRead', false] }
+                                ]},
+                                1, 0
+                            ]
+                        }
+                    }
+                }
+            },
+
+            // Step 4: Sort conversations by most recent
+            { $sort: { lastMessageAt: -1 } },
+
+            // Step 5: Join with users collection for peer info
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'peer'
+                }
+            },
+            { $unwind: { path: '$peer', preserveNullAndEmptyArrays: true } },
+
+            // Step 6: Shape output
+            {
+                $project: {
+                    peerId:        '$_id',
+                    lastMessage:   1,
+                    lastMessageAt: 1,
+                    lastSenderId:  1,
+                    unreadCount:   1,
+                    peerName:      { $ifNull: ['$peer.name', 'User'] },
+                    peerImage:     { $ifNull: ['$peer.profileImage', null] },
+                }
+            }
+        ]);
+
+        res.status(200).json({ success: true, data: { conversations } });
+    } catch (error) {
+        console.error('getChatPeers Error:', error);
         res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
