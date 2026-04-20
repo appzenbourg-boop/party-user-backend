@@ -82,12 +82,14 @@ export const getAllEvents = async (req, res, next) => {
                     prices.push(...floors.map(f => f.price));
                 }
                 
-                // Remove undefined/null
-                prices = prices.filter(p => p !== undefined && p !== null && !isNaN(p));
+                const validPrices = prices.filter(p => p !== undefined && p !== null && !isNaN(p));
+                const paidPrices = validPrices.filter(p => p > 0);
                 
                 let minPrice = undefined;
-                if (prices.length > 0) {
-                    minPrice = Math.min(...prices);
+                if (paidPrices.length > 0) {
+                    minPrice = Math.min(...paidPrices);
+                } else if (validPrices.length > 0) {
+                    minPrice = 0; // Truly Free
                 } else if (e.price !== undefined) {
                     minPrice = e.price;
                 }
