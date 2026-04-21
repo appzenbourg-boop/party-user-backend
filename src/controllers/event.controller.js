@@ -372,7 +372,16 @@ export const getFloorPlan = async (req, res, next) => {
         const { Event } = await import('../models/Event.js');
         const { Booking } = await import('../models/booking.model.js');
 
-        // 1. Fetch data from all sources
+        // ── CACHE CHECK ────────────────────────────────────────────────────────────
+        // Key MUST match what verifyPayment deletes: floor_plan_${eventId}
+        // so that a new booking immediately invalidates the cached layout.
+        const cacheKey = `floor_plan_${id}`;
+        const cached = await cacheService.get(cacheKey);
+        if (cached) {
+            return res.status(200).json({ success: true, data: cached, cached: true });
+        }
+
+        // 1. Fetch data from all sources in parallel
         const [dedicatedFloors, eventDoc, bookedSeats] = await Promise.all([
             Floor.find({ eventId: id }).lean(),
             Event.findById(id).select('floors tickets').lean(),
@@ -391,9 +400,9 @@ export const getFloorPlan = async (req, res, next) => {
             }
         });
 
-        console.log('[FloorPlan] Total booked seats:', bookedSeatIds.size);
+        console.log('[FloorPlan] Booked seats:', bookedSeatIds.size, 'for event:', id);
 
-        // 3. Resolve the primary source of 'zones'
+        // 3. Resolve primary zone source
         let rawZones = [];
         if (dedicatedFloors && dedicatedFloors.length > 0) {
             rawZones = dedicatedFloors;
@@ -406,7 +415,7 @@ export const getFloorPlan = async (req, res, next) => {
             }));
         }
 
-        // 4. Transform and add virtual seats with real booking status
+        // 4. Build seat grid with LIVE booked status from DB
         const zones = rawZones.map(f => {
             const seats = [];
             const count = Math.min(f.capacity || 24, 100); 
@@ -434,9 +443,16 @@ export const getFloorPlan = async (req, res, next) => {
             };
         });
 
-        res.status(200).json({ success: true, data: { zones } });
+        const responseData = { zones };
+
+        // ── CACHE (short TTL: 30s) so concurrent visitors get fast responses,
+        // but verifyPayment's cache bust still propagates within seconds.
+        await cacheService.set(cacheKey, responseData, 30).catch(() => {});
+
+        res.status(200).json({ success: true, data: responseData });
     } catch (err) { next(err); }
 };
+
 
 export const lockSeats = async (req, res, next) => {
     try {
@@ -824,9 +840,9 @@ export const reportEvent = async (req, res, next) => {
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
         const { Report } = await import('../models/Report.js');
-        const existingReport = await Report.findOne({ reportedBy: req.user.id, eventId });
-        if (existingReport) {
-            return res.status(400).json({ success: false, message: 'You have already reported this event' });
+        const reportCount = await Report.countDocuments({ reportedBy: req.user.id, eventId });
+        if (reportCount >= 5) {
+            return res.status(400).json({ success: false, message: 'You can only report an event up to 5 times.' });
         }
 
         await Report.create({

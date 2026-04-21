@@ -262,7 +262,7 @@ export const submitIncidentReport = async (req, res, next) => {
             const { Booking } = await import('../models/booking.model.js');
             const activeBooking = await Booking.findOne({ 
                 userId, 
-                status: { $in: ['approved', 'active', 'checked_in'] }
+                status: 'checked_in'
             }).select('eventId hostId').lean();
             
             if (activeBooking) {
@@ -274,7 +274,7 @@ export const submitIncidentReport = async (req, res, next) => {
         if (!finalEventId || !finalHostId) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'eventId and hostId are required. Please ensure you have an active booking.' 
+                message: 'You must be checked-in to an event to report an incident.' 
             });
         }
 
@@ -298,6 +298,14 @@ export const submitIncidentReport = async (req, res, next) => {
         if (finalTable) finalTable = cleanTableId(finalTable) || finalTable;
         if (finalZone) finalZone = cleanZone(finalZone) || finalZone;
 
+        let uploadedUrls = [];
+        if (req.body.images && req.body.images.length > 0) {
+            try {
+                const { uploadToCloudinary } = await import('../config/cloudinary.config.js');
+                uploadedUrls = await Promise.all(req.body.images.map(img => uploadToCloudinary(img, 'entry-club/incidents')));
+            } catch (cloudErr) { console.error('[Cloudinary] Upload Fail:', cloudErr.message); }
+        }
+
         const report = await IssueReport.create({ 
             userId, 
             userName: req.user?.name || req.user?.username || 'Guest',
@@ -306,7 +314,8 @@ export const submitIncidentReport = async (req, res, next) => {
             type, 
             zone: finalZone || 'GENERAL', 
             tableId: finalTable || 'FLOOR', 
-            message, 
+            message,
+            images: uploadedUrls, 
             status: 'open' 
         });
 
