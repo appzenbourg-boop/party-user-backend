@@ -104,7 +104,12 @@ export const verifyPayment = async (req, res, next) => {
             await cacheService.clearPrefix('events:list');
             await cacheService.delete(`event_${eventId}`);
 
-            // 2. Background tasks (non-blocking)
+            // ── CRITICAL FIX: bust floor-plan cache so ALL other users see the
+            // newly booked seat as 'booked' on their next API call. Without this,
+            // the old floor plan (with the seat still 'available') is served from
+            // Redis for up to 5 minutes after a booking.
+            await cacheService.delete(`floor_plan_${eventId}`);
+
             const tasks = [];
 
             // Atomic sold count update (using cleaned type for match)
@@ -141,7 +146,15 @@ export const verifyPayment = async (req, res, next) => {
 
             await Promise.all(tasks);
 
-            // 3. 🔑 REFERRAL UNLOCK — fire-and-forget after booking confirmed
+            // ── REAL-TIME: Emit inventory_update so ALL connected floor-plan
+            // screens immediately trigger a refetch and show the seat as booked.
+            // This is the socket event the floor-plan.tsx already listens for.
+            const io = getIO();
+            if (io) {
+                io.emit('inventory_update', { eventId, bookedSeatIds: seatIds || [] });
+            }
+
+            // ─── REFERRAL UNLOCK — fire-and-forget after booking confirmed ───────
             (async () => {
                 try {
                     const reward = await ReferralReward.findOne({ 
@@ -271,6 +284,50 @@ export const createFoodOrder = async (req, res, next) => {
                 };
         });
 
+        let finalTableId = (bodyTableId && bodyTableId !== 'Floor') ? bodyTableId : (bookingByEvent?.tableId || 'Floor');
+        
+        // Resolve ugly Mongo Object IDs or seat slugs into human-readable Table Names
+        if (finalTableId && typeof finalTableId === 'string') {
+            if (finalTableId.includes('_s')) {
+                const seatNumber = finalTableId.split('_s')[1];
+                if (seatNumber) finalTableId = `Table ${seatNumber}`;
+            } else if (finalTableId.length === 24 && /^[0-9a-fA-F]{24}$/.test(finalTableId)) {
+                // It's a raw Mongo ObjectId! Let's look up the table name
+                try {
+                    const targetEventId = eventId || bookingByEvent?.eventId;
+                    const eventDoc = targetEventId ? await Event.findById(targetEventId).select('floors tickets').lean() : null;
+                    let foundName = null;
+
+                    // 1. Check embedded event floors
+                    if (eventDoc && eventDoc.floors) {
+                        const floor = eventDoc.floors.find(f => f._id && f._id.toString() === finalTableId);
+                        if (floor && floor.name) foundName = floor.name;
+                    }
+                    // 2. Check standalone Floor collection
+                    if (!foundName) {
+                        try {
+                            const { Floor } = await import('../models/Floor.js');
+                            const standaloneFloor = await Floor.findById(finalTableId).select('name').lean();
+                            if (standaloneFloor && standaloneFloor.name) foundName = standaloneFloor.name;
+                        } catch (e) { /* ignore import/query errors */ }
+                    }
+                    // 3. Check embedded event tickets
+                    if (!foundName && eventDoc && eventDoc.tickets) {
+                        const ticket = eventDoc.tickets.find(t => t._id && t._id.toString() === finalTableId);
+                        if (ticket && (ticket.name || ticket.type)) foundName = ticket.name || ticket.type;
+                    }
+                    // 4. Fallback to formatting the ID nicely if not found
+                    if (foundName) {
+                        finalTableId = foundName;
+                    } else {
+                        finalTableId = `Table ${finalTableId.substring(0, 4).toUpperCase()}`;
+                    }
+                } catch (e) {
+                    false && console.error('[Backend Order] Error resolving table name:', e);
+                }
+            }
+        }
+
         const foodOrder = await FoodOrder.create({
             userId: req.user.id,
             eventId: eventId || bookingByEvent?.eventId || null,
@@ -281,8 +338,8 @@ export const createFoodOrder = async (req, res, next) => {
             serviceFee: Number(serviceFee || 0),
             tipAmount: Number(tipAmount || 0),
             totalAmount: totalAmount,
-            zone: bookingByEvent?.ticketType || zone || 'general',
-            tableId: bodyTableId || bookingByEvent?.tableId || 'Floor',
+            zone: (zone && zone !== 'Standard' && zone !== 'general') ? zone : (bookingByEvent?.ticketType || 'general'),
+            tableId: finalTableId,
             status: 'payment_pending',
             paymentStatus: 'pending',
             transactionId: razorpayOrder.id
