@@ -106,7 +106,7 @@ export const notificationService = {
         try {
             if (!admin.apps.length) return;
 
-            const tokenDocs = await DeviceToken.find({ role });
+            const tokenDocs = await DeviceToken.find({ role: { $regex: new RegExp(`^${role}$`, 'i') } });
             if (!tokenDocs.length) {
                 console.log(`[Push] No tokens for role: ${role}`);
                 return;

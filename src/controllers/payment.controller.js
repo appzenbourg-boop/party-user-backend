@@ -202,6 +202,14 @@ export const verifyPayment = async (req, res, next) => {
                 { type: 'booking', bookingId: booking._id.toString() }
             ).catch(err => false && console.error('[Push Latency Error]', err.message));
 
+            // 5. Push notification to HOST
+            notificationService.sendToUser(
+                hostId,
+                '🎟️ New Ticket Booked!',
+                `A guest just booked ${ticketType}.`,
+                { type: 'booking', bookingId: booking._id.toString() }
+            ).catch(err => false && console.error('[Push Latency Error]', err.message));
+
             return res.status(200).json({
                 success: true,
                 message: "Payment verified successfully",

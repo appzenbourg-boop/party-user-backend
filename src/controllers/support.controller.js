@@ -319,6 +319,14 @@ export const submitIncidentReport = async (req, res, next) => {
             status: 'open' 
         });
 
+        // Notify SECURITY staff
+        import('../services/notification.service.js').then(({ notificationService }) => {
+            notificationService.sendToRole('SECURITY', '🚨 Incident Reported', `${type} at ${finalZone} - Table ${finalTable}`, {
+                type: 'security_alert',
+                sound: 'default'
+            }).catch(() => {});
+        });
+
         res.status(201).json({ success: true, message: 'Incident reported', data: report });
     } catch (err) { 
         console.error('[Incident Report] Error:', err.message);
