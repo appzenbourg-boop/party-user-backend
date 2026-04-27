@@ -27,7 +27,7 @@ export const getAllEvents = async (req, res, next) => {
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-            console.log('🔍 [getAllEvents] Fetching events with filters:', {
+            false && console.log('🔍 [getAllEvents] Fetching events with filters:', {
                 status: 'LIVE',
                 date: { $gte: startOfToday },
                 startOfToday: startOfToday.toISOString()
@@ -38,7 +38,7 @@ export const getAllEvents = async (req, res, next) => {
             const liveEvents = await Event.countDocuments({ status: 'LIVE' });
             const futureEvents = await Event.countDocuments({ date: { $gte: startOfToday } });
             
-            console.log('📊 [getAllEvents] Database stats:', {
+            false && console.log('📊 [getAllEvents] Database stats:', {
                 totalEvents: totalEventsInDB,
                 liveEvents: liveEvents,
                 futureEvents: futureEvents
@@ -49,7 +49,7 @@ export const getAllEvents = async (req, res, next) => {
                 status: 'LIVE', 
                 date: { $gte: startOfToday } 
             })
-            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel') // Added hostModel for refPath
+            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel tickets floors price') // Added tickets, floors and price
             .populate({
                 path: 'hostId',
                 select: 'name profileImage businessName logo'
@@ -59,9 +59,9 @@ export const getAllEvents = async (req, res, next) => {
             .limit(limit)
             .lean(); // 3x faster
 
-            console.log('✅ [getAllEvents] Found events:', results.length);
+            false && console.log('✅ [getAllEvents] Found events:', results.length);
             if (results.length > 0) {
-                console.log('📋 [getAllEvents] First event:', {
+                false && console.log('📋 [getAllEvents] First event:', {
                     title: results[0].title,
                     date: results[0].date,
                     status: results[0].status,
@@ -72,15 +72,43 @@ export const getAllEvents = async (req, res, next) => {
             // Calculate display price and occupancy
             return results.map(e => {
                 const tickets = e.tickets || [];
-                const minPrice = tickets.length > 0 
-                    ? Math.min(...tickets.map(t => t.price)) 
-                    : 2500;
+                const floors = e.floors || [];
                 
-                const totalCapacity = tickets.reduce((sum, t) => sum + (t.capacity || 0), 0) || 100;
-                const totalSold = tickets.reduce((sum, t) => sum + (t.sold || 0), 0);
-                const occupancy = totalCapacity > 0 
-                    ? Math.min(Math.round((totalSold / totalCapacity) * 100), 100)
-                    : 20 + Math.floor(Math.random() * 40);
+                let prices = [];
+                if (tickets.length > 0) {
+                    prices.push(...tickets.map(t => t.price));
+                }
+                if (floors.length > 0) {
+                    prices.push(...floors.map(f => f.price));
+                }
+                
+                const validPrices = prices.filter(p => p !== undefined && p !== null && !isNaN(p));
+                const paidPrices = validPrices.filter(p => p > 0);
+                
+                let minPrice = undefined;
+                if (paidPrices.length > 0) {
+                    minPrice = Math.min(...paidPrices);
+                } else if (validPrices.length > 0) {
+                    minPrice = 0; // Truly Free
+                } else if (e.price !== undefined) {
+                    minPrice = e.price;
+                }
+                
+                let totalSold = tickets.reduce((sum, t) => sum + (t.sold || 0), 0);
+                // Fallback to top-level attendeeCount if tickets are misconfigured or sold separately
+                if ((e.attendeeCount || 0) > totalSold) {
+                    totalSold = e.attendeeCount;
+                }
+
+                let totalCapacity = tickets.reduce((sum, t) => sum + (t.capacity || 0), 0) + floors.reduce((sum, f) => sum + (f.capacity || 0), 0);
+                if (totalCapacity === 0) totalCapacity = 100; // sensible default for ticketless events
+
+                // Only fake data mildly if completely empty to encourage first buyers, otherwise be exact
+                let occupancy = Math.min(Math.round((totalSold / totalCapacity) * 100), 100);
+                if (occupancy === 0 && (e.attendeeCount || 0) === 0 && totalSold === 0) {
+                    // Start at realistically small seed (e.g. 5-15%) to avoid looking dead, but only if 0 attendees
+                    occupancy = 5 + Math.floor(Math.random() * 10);
+                }
 
                 return {
                     _id: e._id,
@@ -88,7 +116,10 @@ export const getAllEvents = async (req, res, next) => {
                     date: e.date,
                     startTime: e.startTime,
                     coverImage: e.coverImage,
-                    displayPrice: minPrice,
+                    displayPrice: minPrice !== undefined ? minPrice : null,
+                    tickets: tickets,
+                    floors: floors, // Include floors array for frontend
+                    price: e.price, // Include fallback price
                     occupancy: `${occupancy}%`,
                     locationVisibility: e.locationVisibility,
                     locationData: e.locationData,
@@ -164,7 +195,7 @@ export const getEventBasic = async (req, res, next) => {
         }
 
         // Fire and forget cache write to save response time!
-        cacheService.set(cacheKey, item, 600).catch(console.error);
+        cacheService.set(cacheKey, item, 600).catch(() => {});
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
         res.status(200).json({ success: true, data: item });
     } catch (err) { next(err); }
@@ -190,7 +221,7 @@ export const getEventDetails = async (req, res, next) => {
             
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
-        cacheService.set(cacheKey, event, 300).catch(console.error);
+        cacheService.set(cacheKey, event, 300).catch(() => {});
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         return res.status(200).json({ success: true, data: event });
     } catch (err) { next(err); }
@@ -214,7 +245,7 @@ export const getEventTickets = async (req, res, next) => {
             floors: event.floors || []
         };
         
-        cacheService.set(cacheKey, data, 300).catch(console.error);
+        cacheService.set(cacheKey, data, 300).catch(() => {});
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         res.status(200).json({ success: true, data });
     } catch (err) { next(err); }
@@ -235,7 +266,7 @@ export const getEventFull = async (req, res, next) => {
         const cacheKey = cacheService.formatKey('event_full_v1', id);
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            console.log(`[⚡ OPTIMIZED] getEventFull (CACHED): ${Date.now() - startTime}ms`);
+            false && console.log(`[⚡ OPTIMIZED] getEventFull (CACHED): ${Date.now() - startTime}ms`);
             res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
             return res.status(200).json({ success: true, data: cached, cached: true });
         }
@@ -253,7 +284,7 @@ export const getEventFull = async (req, res, next) => {
                 .lean(),
             Floor.find({ eventId: id }).select('name capacity price type').lean()
         ]);
-        console.log(`[⚡ DB] Parallel queries: ${Date.now() - dbStart}ms`);
+        false && console.log(`[⚡ DB] Parallel queries: ${Date.now() - dbStart}ms`);
 
         if (!event) {
             return res.status(404).json({ success: false, message: 'Event not found' });
@@ -320,16 +351,16 @@ export const getEventFull = async (req, res, next) => {
         };
 
         const payloadSize = JSON.stringify(data).length;
-        console.log(`[⚡ PAYLOAD] Size: ${(payloadSize / 1024).toFixed(2)}KB`);
+        false && console.log(`[⚡ PAYLOAD] Size: ${(payloadSize / 1024).toFixed(2)}KB`);
 
         // ⚡ STEP 7: Cache for 5 minutes (Fire-and-forget so it doesn't block API)
-        cacheService.set(cacheKey, data, 300).catch(console.error);
+        cacheService.set(cacheKey, data, 300).catch(() => {});
         
-        console.log(`[⚡ OPTIMIZED] getEventFull (DB): ${Date.now() - startTime}ms`);
+        false && console.log(`[⚡ OPTIMIZED] getEventFull (DB): ${Date.now() - startTime}ms`);
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
         res.status(200).json({ success: true, data, cached: false });
     } catch (err) {
-        console.error(`[⚡ ERROR] getEventFull failed: ${Date.now() - startTime}ms`, err.message);
+        false && console.error(`[⚡ ERROR] getEventFull failed: ${Date.now() - startTime}ms`, err.message);
         next(err);
     }
 };
@@ -339,14 +370,39 @@ export const getFloorPlan = async (req, res, next) => {
         const { id } = req.params;
         const { Floor } = await import('../models/Floor.js');
         const { Event } = await import('../models/Event.js');
+        const { Booking } = await import('../models/booking.model.js');
 
-        // 1. Fetch data from both sources
-        const [dedicatedFloors, eventDoc] = await Promise.all([
+        // ── CACHE CHECK ────────────────────────────────────────────────────────────
+        // Key MUST match what verifyPayment deletes: floor_plan_${eventId}
+        // so that a new booking immediately invalidates the cached layout.
+        const cacheKey = `floor_plan_${id}`;
+        const cached = await cacheService.get(cacheKey);
+        if (cached) {
+            return res.status(200).json({ success: true, data: cached, cached: true });
+        }
+
+        // 1. Fetch data from all sources in parallel
+        const [dedicatedFloors, eventDoc, bookedSeats] = await Promise.all([
             Floor.find({ eventId: id }).lean(),
-            Event.findById(id).select('floors tickets').lean()
+            Event.findById(id).select('floors tickets').lean(),
+            Booking.find({ 
+                eventId: id, 
+                status: { $ne: 'cancelled' },
+                seatIds: { $exists: true, $ne: [] }
+            }).select('seatIds').lean()
         ]);
 
-        // 2. Resolve the primary source of 'zones'
+        // 2. Collect all booked seat IDs
+        const bookedSeatIds = new Set();
+        bookedSeats.forEach(booking => {
+            if (booking.seatIds && Array.isArray(booking.seatIds)) {
+                booking.seatIds.forEach(seatId => bookedSeatIds.add(seatId));
+            }
+        });
+
+        console.log('[FloorPlan] Booked seats:', bookedSeatIds.size, 'for event:', id);
+
+        // 3. Resolve primary zone source
         let rawZones = [];
         if (dedicatedFloors && dedicatedFloors.length > 0) {
             rawZones = dedicatedFloors;
@@ -359,29 +415,44 @@ export const getFloorPlan = async (req, res, next) => {
             }));
         }
 
-        // 3. Transform and add virtual seats for UX orchestration
+        // 4. Build seat grid with LIVE booked status from DB
         const zones = rawZones.map(f => {
             const seats = [];
-            // Generate seats based on capacity (default to 24 if missing)
             const count = Math.min(f.capacity || 24, 100); 
+            
             for (let i = 1; i <= count; i++) {
+                const seatId = `${f._id || f.type}_s${i}`;
+                const isBooked = bookedSeatIds.has(seatId);
+                
                 seats.push({
-                    id: `${f._id || f.type}_s${i}`,
+                    id: seatId,
                     number: `${i}`,
-                    status: (i % 8 === 0) ? 'booked' : 'available',
+                    status: isBooked ? 'booked' : 'available',
                     price: f.price
                 });
             }
+            
+            const bookedInZone = seats.filter(s => s.status === 'booked').length;
+            
             return {
                 ...f,
                 name: f.name || f.type,
-                seats
+                seats,
+                available: count - bookedInZone,
+                total: count
             };
         });
 
-        res.status(200).json({ success: true, data: { zones } });
+        const responseData = { zones };
+
+        // ── CACHE (short TTL: 30s) so concurrent visitors get fast responses,
+        // but verifyPayment's cache bust still propagates within seconds.
+        await cacheService.set(cacheKey, responseData, 30).catch(() => {});
+
+        res.status(200).json({ success: true, data: responseData });
     } catch (err) { next(err); }
 };
+
 
 export const lockSeats = async (req, res, next) => {
     try {
@@ -454,7 +525,7 @@ export const bookEvent = async (req, res, next) => {
                 cacheService.delete(cacheService.formatKey('booking', req.user.id, eventId)),
                 cacheService.delete(cacheService.formatKey('my-bookings', req.user.id))
             ]);
-        })().catch(e => console.error('[Event Sync Fail]', e.message));
+        })().catch(e => false && console.error('[Event Sync Fail]', e.message));
 
         res.status(201).json({ success: true, message: 'Experience Booked!', data: booking });
     } catch (err) { next(err); }
@@ -471,20 +542,64 @@ export const getBookedTables = async (req, res, next) => {
 export const getMenuItems = async (req, res, next) => {
     try {
         const { eventId } = req.params;
+        console.log(`\n📡 [getMenuItems] Called for eventId: ${eventId} by user: ${req.user.id}`);
+
         const cacheKey = cacheService.formatKey('event_menu', eventId);
+
+        const event = await Event.findById(eventId).select('hostId venueId date title status').lean();
+        if (!event) {
+            console.log(`❌ [getMenuItems] Event not found for id: ${eventId}`);
+            return res.status(200).json({ success: true, data: [], message: 'Event not found' });
+        }
+
+        console.log(`📅 [getMenuItems] Event: "${event.title}" | Status: ${event.status} | Date: ${event.date}`);
+
+        // ── GATE 1: Block immediately if event is EXPIRED ─────────────────────
+        if (event.status === 'EXPIRED' || event.status === 'CANCELLED' || event.status === 'ENDED') {
+            console.log(`🚫 [getMenuItems] Event status is "${event.status}" — menu BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
+        }
+
+        // ── GATE 2: Block if event date is in the past ────────────────────────
+        const now = new Date();
+        const eventDate = new Date(event.date);
+        const eventEndOfDay = new Date(eventDate);
+        eventEndOfDay.setHours(23, 59, 59, 999);
+        if (now > eventEndOfDay) {
+            console.log(`🚫 [getMenuItems] Event date ${event.date} is in the past — menu BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
+        }
+
+        // ── GATE 3: User must have an active booking for this event ───────────
+        const activeBooking = await Booking.findOne({
+            userId: req.user.id,
+            eventId,
+            status: { $in: ['active', 'checked_in', 'confirmed', 'approved'] }
+        }).select('_id').lean();
+
+        if (!activeBooking) {
+            console.log(`🚫 [getMenuItems] No active booking for user ${req.user.id} on event ${eventId} — menu BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'You need to book this event to access the menu.' });
+        }
+
+        console.log(`✅ [getMenuItems] All gates passed. Booking: ${activeBooking._id} — fetching menu`);
+
+        // Check cache only after all gates pass
         const cached = await cacheService.get(cacheKey);
-        if (cached) return res.status(200).json({ success: true, data: cached });
+        if (cached) {
+            console.log(`✅ [getMenuItems] Menu response (CACHED): ${cached.length} items`);
+            return res.status(200).json({ success: true, data: cached });
+        }
 
-        const event = await Event.findById(eventId).select('hostId venueId').lean();
-        if (!event) return res.status(200).json({ success: true, data: [], message: 'Event not found' });
-
-        // ⚡ Single $or query — replaces 3 sequential DB calls (3x faster)
+        // ⚡ Single $or query
         const orConditions = [{ hostId: event.hostId }, { eventId }];
         if (event.venueId) orConditions.push({ venueId: event.venueId });
 
         const dbItems = await MenuItem.find({ $or: orConditions, inStock: true })
             .select('name price category image desc inStock')
             .lean();
+
+        console.log(`✅ [getMenuItems] Menu response: ${dbItems.length} items`);
 
         const items = dbItems.map(item => ({ ...item, type: item.category, description: item.desc || '' }));
         await cacheService.set(cacheKey, items, 600);
@@ -518,17 +633,14 @@ export const getActiveEvent = async (req, res, next) => {
         
         const forceRefresh = req.query.refresh === 'true';
         if (forceRefresh) {
-            console.log('🔄 [getActiveEvent] Force refresh requested, clearing cache');
             await cacheService.delete(cacheKey);
         }
         
         const cached = await cacheService.get(cacheKey);
         if (cached && !forceRefresh) {
-            console.log('✅ [getActiveEvent] Cache HIT for user:', req.user.id);
             return res.status(200).json({ success: true, data: cached });
         }
 
-        console.log('🔍 [getActiveEvent] Querying database for user:', req.user.id);
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
             status: { $in: ['approved', 'active', 'checked_in'] }
@@ -536,15 +648,30 @@ export const getActiveEvent = async (req, res, next) => {
         .select('eventId hostId status tableId zone createdAt')
         .populate({
             path: 'eventId',
-            select: 'title coverImage startTime venueId'
+            select: 'title coverImage startTime venueId date status'
         })
         .lean();
         
-        console.log('📦 [getActiveEvent] Raw booking:', JSON.stringify(booking, null, 2));
-        
         if (booking && booking.hostId) {
+            // ── GATE: Validate the booked event is still live & not past its date ──
+            const bookedEvent = booking.eventId;
+            if (bookedEvent) {
+                const expiredStatuses = ['EXPIRED', 'CANCELLED', 'ENDED', 'COMPLETED'];
+                const isStatusExpired = expiredStatuses.includes(bookedEvent.status);
+                const now = new Date();
+                const eventEndOfDay = new Date(bookedEvent.date);
+                eventEndOfDay.setHours(23, 59, 59, 999);
+                const isDatePast = now > eventEndOfDay;
+
+                if (isStatusExpired || isDatePast) {
+                    console.log(`🚫 [getActiveEvent] Event "${bookedEvent.title}" is completed (status: ${bookedEvent.status}, date: ${bookedEvent.date}) — returning null`);
+                    // Clear stale cache so it's not served again
+                    await cacheService.delete(cacheKey);
+                    return res.status(200).json({ success: true, data: null });
+                }
+            }
+
             booking.hostId = booking.hostId.toString();
-            console.log('🎯 [getActiveEvent] Converted hostId to string:', booking.hostId);
             
             // Get live crowd count for this event
             const eventId = booking.eventId?._id || booking.eventId;
@@ -553,44 +680,72 @@ export const getActiveEvent = async (req, res, next) => {
                     eventId: eventId,
                     status: { $in: ['checked_in', 'active'] }
                 });
-                
                 booking.liveCrowd = checkedInCount;
-                console.log('👥 [getActiveEvent] Live crowd count:', checkedInCount);
             }
             
             await cacheService.set(cacheKey, booking, 120);
-        } else {
-            console.log('⚠️ [getActiveEvent] No active booking found');
         }
         
         res.status(200).json({ success: true, data: booking || null });
     } catch (err) { 
-        console.error('❌ [getActiveEvent] ERROR:', err.message);
         next(err); 
     }
 };
 
-// ── PUBLIC: Get host's menu items by hostId (post-booking) ─────────────────
+// ── GATED: Get host's menu items — requires active, non-expired booking ────
 export const getHostMenu = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        if (!hostId) return res.status(200).json({ success: true, data: [] });
+        if (!hostId) return res.status(200).json({ success: true, data: [], message: 'No host specified.' });
 
+        console.log(`\n📡 [getHostMenu] Called for hostId: ${hostId} by user: ${req.user.id}`);
+
+        // ── GATE: User must have an active booking for a live event with this host ──
+        const activeBooking = await Booking.findOne({
+            userId: req.user.id,
+            hostId,
+            status: { $in: ['active', 'checked_in', 'confirmed', 'approved'] }
+        }).select('eventId').lean();
+
+        if (!activeBooking) {
+            console.log(`🚫 [getHostMenu] No active booking for user ${req.user.id} with host ${hostId} — BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'You need to book an active event to access the menu.' });
+        }
+
+        // ── GATE 2: Verify the booked event is not expired/past ──────────────────
+        const bookedEvent = await Event.findById(activeBooking.eventId).select('status date title').lean();
+        if (bookedEvent) {
+            console.log(`📅 [getHostMenu] Event: "${bookedEvent.title}" | Status: ${bookedEvent.status} | Date: ${bookedEvent.date}`);
+
+            const expiredStatuses = ['EXPIRED', 'CANCELLED', 'ENDED', 'COMPLETED'];
+            if (expiredStatuses.includes(bookedEvent.status)) {
+                console.log(`🚫 [getHostMenu] Event status "${bookedEvent.status}" — menu BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
+            }
+
+            const now = new Date();
+            const eventEndOfDay = new Date(bookedEvent.date);
+            eventEndOfDay.setHours(23, 59, 59, 999);
+            if (now > eventEndOfDay) {
+                console.log(`🚫 [getHostMenu] Event date is in the past — menu BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
+            }
+        }
+
+        console.log(`✅ [getHostMenu] Gates passed — fetching menu for host: ${hostId}`);
+
+        // Check cache only after gates pass
         const cacheKey = cacheService.formatKey('host_menu', hostId);
-        
-        // Check cache first
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            return res.status(200).json({ 
-                success: true, 
-                data: typeof cached === 'string' ? JSON.parse(cached) : cached,
-                cached: true 
-            });
+            const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
+            console.log(`✅ [getHostMenu] Menu response (CACHED): ${data.length} items`);
+            return res.status(200).json({ success: true, data, cached: true });
         }
 
         const SELECT = 'name price category image desc inStock';
 
-        let items = await MenuItem.find({ hostId })
+        let items = await MenuItem.find({ hostId, inStock: true })
             .select(SELECT)
             .sort({ category: 1 })
             .lean();
@@ -598,9 +753,11 @@ export const getHostMenu = async (req, res, next) => {
         if (items.length === 0) {
             const venue = await Venue.findOne({ hostId }).select('_id').lean();
             if (venue) {
-                items = await MenuItem.find({ venueId: venue._id }).select(SELECT).sort({ category: 1 }).lean();
+                items = await MenuItem.find({ venueId: venue._id, inStock: true }).select(SELECT).sort({ category: 1 }).lean();
             }
         }
+
+        console.log(`✅ [getHostMenu] Menu response: ${items.length} items`);
 
         const data = items.map(i => ({ ...i, type: i.category, description: i.desc || '' }));
         await cacheService.set(cacheKey, data, 600);
@@ -612,47 +769,67 @@ export const getHostMenu = async (req, res, next) => {
 export const getHostGifts = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        console.log('🎁 [getHostGifts] Request for hostId:', hostId);
-        
-        if (!hostId) {
-            console.log('🎁 [getHostGifts] No hostId provided');
-            return res.status(200).json({ success: true, data: [] });
+        console.log(`\n🎁 [getHostGifts] Called for hostId: ${hostId} by user: ${req.user.id}`);
+
+        if (!hostId) return res.status(200).json({ success: true, data: [] });
+
+        // ── GATE 1+2: Find user's active booking with this host for a LIVE event ─
+        const activeBooking = await Booking.findOne({
+            userId: req.user.id,
+            hostId,
+            status: { $in: ['active', 'checked_in', 'confirmed', 'approved'] }
+        }).select('eventId').lean();
+
+        if (!activeBooking) {
+            console.log(`🚫 [getHostGifts] No active booking for user ${req.user.id} with host ${hostId} — gifts BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'You need to book an active event to access gifts.' });
         }
+
+        // ── GATE 2: Verify the booked event is not expired ────────────────────
+        const bookedEvent = await Event.findById(activeBooking.eventId).select('status date title').lean();
+        if (bookedEvent) {
+            console.log(`📅 [getHostGifts] Booked event: "${bookedEvent.title}" | Status: ${bookedEvent.status} | Date: ${bookedEvent.date}`);
+
+            const expiredStatuses = ['EXPIRED', 'CANCELLED', 'ENDED', 'COMPLETED'];
+            if (expiredStatuses.includes(bookedEvent.status)) {
+                console.log(`🚫 [getHostGifts] Event status "${bookedEvent.status}" — gifts BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access gifts.' });
+            }
+
+            const now = new Date();
+            const eventEndOfDay = new Date(bookedEvent.date);
+            eventEndOfDay.setHours(23, 59, 59, 999);
+            if (now > eventEndOfDay) {
+                console.log(`🚫 [getHostGifts] Event date is in the past — gifts BLOCKED`);
+                return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access gifts.' });
+            }
+        }
+
+        console.log(`✅ [getHostGifts] All gates passed — fetching gifts`);
 
         const cacheKey = cacheService.formatKey('host_gifts', hostId);
-        
-        // Check cache first
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            console.log('🎁 [getHostGifts] Cache HIT:', typeof cached === 'string' ? JSON.parse(cached).length : cached.length, 'items');
-            return res.status(200).json({ 
-                success: true, 
-                data: typeof cached === 'string' ? JSON.parse(cached) : cached,
-                cached: true 
-            });
+            const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
+            console.log(`✅ [getHostGifts] Gifts response (CACHED): ${data.length} items`);
+            return res.status(200).json({ success: true, data, cached: true });
         }
 
-        console.log('🎁 [getHostGifts] Cache MISS, querying database...');
-        let gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
+        const gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
             .select('name description price category image inStock')
             .sort({ category: 1 })
             .lean();
 
-        console.log('🎁 [getHostGifts] Database returned:', gifts.length, 'items');
-        
-        if (gifts.length > 0) {
-            console.log('🎁 [getHostGifts] Sample gift:', JSON.stringify(gifts[0]));
-        }
+        console.log(`✅ [getHostGifts] Gifts response: ${gifts.length} items`);
 
         await cacheService.set(cacheKey, gifts, 600);
-        console.log('🎁 [getHostGifts] Cached for 10 minutes');
-        
         res.status(200).json({ success: true, data: gifts, count: gifts.length });
-    } catch (err) { 
-        console.error('🎁 [getHostGifts] ERROR:', err.message);
-        next(err); 
+    } catch (err) {
+        console.error('❌ [getHostGifts] ERROR:', err.message);
+        next(err);
     }
 };
+
 
 export const reportEvent = async (req, res, next) => {
     try {
@@ -663,9 +840,9 @@ export const reportEvent = async (req, res, next) => {
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
         const { Report } = await import('../models/Report.js');
-        const existingReport = await Report.findOne({ reportedBy: req.user.id, eventId });
-        if (existingReport) {
-            return res.status(400).json({ success: false, message: 'You have already reported this event' });
+        const reportCount = await Report.countDocuments({ reportedBy: req.user.id, eventId });
+        if (reportCount >= 5) {
+            return res.status(400).json({ success: false, message: 'You can only report an event up to 5 times.' });
         }
 
         await Report.create({

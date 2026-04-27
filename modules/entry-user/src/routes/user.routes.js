@@ -11,7 +11,7 @@ import {
 } from "../controllers/event.controller.js";
 
 import {
-    getAllVenues, getVenueById
+    getAllVenues, getVenueById, getVenueByHostId
 } from "../controllers/venue.controller.js";
 
 import {
@@ -23,7 +23,7 @@ import {
 } from '../controllers/support.controller.js';
 
 import {
-    submitIncidentReport, submitReview
+    submitIncidentReport, submitReview, getMyReview, updateReview
 } from '../controllers/support.controller.js';
 
 import { reportEvent } from '../controllers/event.controller.js';
@@ -69,13 +69,16 @@ router.get('/events/:eventId/my-booking', getEventBooking);
 // --- VENUES (Discovery) ---
 router.get('/venues', getAllVenues);
 router.get('/venues/:id', getVenueById);
+router.get('/venues/host/:hostId', getVenueByHostId);
 
 // --- HOST CATALOG (post-booking ordering) ---
 router.get('/host/:hostId/menu', getHostMenu);
 router.get('/host/:hostId/gifts', getHostGifts);
 
 // --- REVIEWS ---
+router.get('/reviews/my', getMyReview);
 router.post('/reviews', submitReview);
+router.put('/reviews', updateReview);
 
 // --- SUPPORT & SAFETY ---
 router.post('/rate', submitAppRating);

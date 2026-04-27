@@ -113,6 +113,31 @@ class HighPerformanceCache {
         return this.delete(key);
     }
 
+    async clearPrefix(prefix) {
+        try {
+            if (this.isUpstashEnabled) {
+                // Upstash Redis SDK scan & delete
+                let cursor = 0;
+                do {
+                    const res = await this.client.scan(cursor, { match: `${prefix}*`, count: 100 });
+                    cursor = res[0];
+                    const keys = res[1];
+                    if (keys && keys.length > 0) {
+                        await this.client.del(...keys);
+                    }
+                } while (cursor !== 0 && cursor !== '0');
+            } else {
+                for (const key of this.localStore.keys()) {
+                    if (key.startsWith(prefix)) {
+                        this.localStore.delete(key);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[Cache ClearPrefix Error]', err);
+        }
+    }
+
     async flushAll() {
         try {
             if (this.isUpstashEnabled) {

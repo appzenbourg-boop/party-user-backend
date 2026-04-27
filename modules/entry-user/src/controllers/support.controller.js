@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { SupportMessage } from '../models/support.model.js';
 import Joi from 'joi';
 import { cacheService } from '../services/cache.service.js';
+import { cleanTableId, cleanZone } from '../utils/tableUtils.js';
 
 // Validation Schema
 export const askSupportSchema = Joi.object({
@@ -164,6 +165,9 @@ export const deleteSupportMessage = async (req, res, next) => {
 // --- TECHNICAL TRIAGE & BUG REPORTING ---
 export const submitBugReport = async (req, res, next) => {
     try {
+        console.log('\n=============================================');
+        console.log('📡 [API HIT] /user/report-bug Triggered');
+        console.log('=============================================');
         const { description, images, metadata } = req.body;
         const { User } = await import('../models/user.model.js');
         const user = await User.findById(req.user.id).select('name email username profileImage').lean();
@@ -178,7 +182,7 @@ export const submitBugReport = async (req, res, next) => {
 
         const transporter = (await import('nodemailer')).default.createTransport({
             service: 'gmail',
-            auth: { user: process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.EMAIL_PASS }
+            auth: { user: process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.SMTP_PASSWORD || process.env.EMAIL_PASS }
         });
 
         const html = `
@@ -190,12 +194,15 @@ export const submitBugReport = async (req, res, next) => {
             ${uploadedUrls.length > 0 ? uploadedUrls.map(url => `<img src="${url}" width="200" style="margin: 5px;"/>`).join('') : ''}
         `;
 
+        console.log('⏳ [Nodemailer] Dispatching Bug Report over network...');
         transporter.sendMail({
-            from: `"STITCH Triage" <${process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
+            from: `"STITCH Triage" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
             to: 'devanshjais20@gmail.com',
             subject: `🐞 BUG: ${description.substring(0, 40)}`,
             html
-        }).catch(e => console.error('[Nodemailer] Dispatch Fail:', e.message));
+        })
+        .then(info => console.log('✅ [Nodemailer] Bug Report successfully sent! Message ID:', info.messageId))
+        .catch(e => console.error('❌ [Nodemailer] Dispatch Fail:', e.message));
 
         res.status(200).json({ success: true, message: 'Bug report dispatched to dev' });
     } catch (err) { next(err); }
@@ -203,13 +210,16 @@ export const submitBugReport = async (req, res, next) => {
 
 export const submitSupportRequest = async (req, res, next) => {
     try {
+        console.log('\n=============================================');
+        console.log('📡 [API HIT] /user/support-ticket Triggered');
+        console.log('=============================================');
         const { name, message } = req.body;
         const { User } = await import('../models/user.model.js');
         const user = await User.findById(req.user.id).select('email username').lean();
 
         const transporter = (await import('nodemailer')).default.createTransport({
             service: 'gmail',
-            auth: { user: process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.EMAIL_PASS }
+            auth: { user: process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com', pass: process.env.SMTP_PASSWORD || process.env.EMAIL_PASS }
         });
 
         const html = `
@@ -219,12 +229,15 @@ export const submitSupportRequest = async (req, res, next) => {
             <p>${message}</p>
         `;
 
+        console.log('⏳ [Nodemailer] Dispatching Support Ticket over network...');
         transporter.sendMail({
-            from: `"STITCH Support" <${process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
+            from: `"STITCH Support" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
             to: 'devanshjais20@gmail.com',
             subject: `🎫 Support Ticket: ${name}`,
             html: html
-        }).catch(e => console.error('[Nodemailer][Support] Dispatch Fail:', e.message));
+        })
+        .then(info => console.log('✅ [Nodemailer] Support Email successfully sent! Message ID:', info.messageId))
+        .catch(e => console.error('❌ [Nodemailer][Support] Dispatch Fail:', e.message));
 
         res.status(200).json({ success: true, message: 'Support request sent to dev' });
     } catch (err) { next(err); }
@@ -249,7 +262,7 @@ export const submitIncidentReport = async (req, res, next) => {
             const { Booking } = await import('../models/booking.model.js');
             const activeBooking = await Booking.findOne({ 
                 userId, 
-                status: { $in: ['approved', 'active', 'checked_in'] }
+                status: 'checked_in'
             }).select('eventId hostId').lean();
             
             if (activeBooking) {
@@ -261,19 +274,57 @@ export const submitIncidentReport = async (req, res, next) => {
         if (!finalEventId || !finalHostId) {
             return res.status(400).json({ 
                 success: false, 
-                message: 'eventId and hostId are required. Please ensure you have an active booking.' 
+                message: 'You must be checked-in to an event to report an incident.' 
             });
+        }
+
+        let finalTable = tableId;
+        let finalZone = zone;
+
+        if (!finalTable || finalTable === 'N/A' || finalTable === '--' || finalTable.trim() === '' || !finalZone) {
+            const { Booking } = await import('../models/booking.model.js');
+            const booking = await Booking.findOne({ userId, eventId: finalEventId })
+                .select('tableId ticketType')
+                .sort({ createdAt: -1 })
+                .lean();
+
+            if (booking) {
+                finalTable = cleanTableId(booking.tableId) || cleanTableId(finalTable);
+                finalZone = cleanZone(booking.ticketType) || cleanZone(finalZone);
+            }
+        }
+
+        // Final safety clean on whatever ended up as the value
+        if (finalTable) finalTable = cleanTableId(finalTable) || finalTable;
+        if (finalZone) finalZone = cleanZone(finalZone) || finalZone;
+
+        let uploadedUrls = [];
+        if (req.body.images && req.body.images.length > 0) {
+            try {
+                const { uploadToCloudinary } = await import('../config/cloudinary.config.js');
+                uploadedUrls = await Promise.all(req.body.images.map(img => uploadToCloudinary(img, 'entry-club/incidents')));
+            } catch (cloudErr) { console.error('[Cloudinary] Upload Fail:', cloudErr.message); }
         }
 
         const report = await IssueReport.create({ 
             userId, 
+            userName: req.user?.name || req.user?.username || 'Guest',
             eventId: finalEventId,
             hostId: finalHostId,
             type, 
-            zone, 
-            tableId, 
-            message, 
+            zone: finalZone || 'GENERAL', 
+            tableId: finalTable || 'FLOOR', 
+            message,
+            images: uploadedUrls, 
             status: 'open' 
+        });
+
+        // Notify SECURITY staff
+        import('../services/notification.service.js').then(({ notificationService }) => {
+            notificationService.sendToRole('SECURITY', '🚨 Incident Reported', `${type} at ${finalZone} - Table ${finalTable}`, {
+                type: 'security_alert',
+                sound: 'default'
+            }).catch(() => {});
         });
 
         res.status(201).json({ success: true, message: 'Incident reported', data: report });
@@ -285,16 +336,76 @@ export const submitIncidentReport = async (req, res, next) => {
 
 export const submitReview = async (req, res, next) => {
     try {
-        const { eventId, hostId, rating, comment } = req.body;
+        const { eventId, hostId, vibe, service, music, feedback, isAnonymous } = req.body;
         const userId = req.user.id;
 
-        if (!eventId || !rating) {
-            return res.status(400).json({ success: false, message: 'eventId and rating are required' });
+        if (!eventId && !hostId) {
+            return res.status(400).json({ success: false, message: 'eventId or hostId is required' });
+        }
+
+        const vScore = Number(vibe) || 1;
+        const sScore = Number(service) || 1;
+        const mScore = Number(music) || 1;
+        const avgScore = (vScore + sScore + mScore) / 3;
+
+        const { Review } = await import('../models/Review.js');
+        const review = await Review.create({ 
+            userId, 
+            eventId, 
+            hostId, 
+            scores: { vibe: vScore, service: sScore, music: mScore },
+            avgScore,
+            feedback,
+            isAnonymous: Boolean(isAnonymous)
+        });
+
+        res.status(201).json({ success: true, message: 'Review submitted', data: review });
+    } catch (err) { next(err); }
+};
+
+export const getMyReview = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { eventId } = req.query;
+
+        if (!eventId) {
+            return res.status(400).json({ success: false, message: 'eventId is required' });
         }
 
         const { Review } = await import('../models/Review.js');
-        const review = await Review.create({ userId, eventId, hostId, rating, comment });
+        const review = await Review.findOne({ userId, eventId }).lean();
 
-        res.status(201).json({ success: true, message: 'Review submitted', data: review });
+        res.status(200).json({ success: true, data: review || null });
+    } catch (err) { next(err); }
+};
+
+export const updateReview = async (req, res, next) => {
+    try {
+        const { reviewId, vibe, service, music, feedback, isAnonymous } = req.body;
+        const userId = req.user.id;
+
+        if (!reviewId) {
+            return res.status(400).json({ success: false, message: 'reviewId is required' });
+        }
+
+        const { Review } = await import('../models/Review.js');
+        const existing = await Review.findOne({ _id: reviewId, userId });
+
+        if (!existing) {
+            return res.status(404).json({ success: false, message: 'Review not found or unauthorized' });
+        }
+
+        const vScore = Number(vibe) || existing.scores.vibe;
+        const sScore = Number(service) || existing.scores.service;
+        const mScore = Number(music) || existing.scores.music;
+        const avgScore = (vScore + sScore + mScore) / 3;
+
+        existing.scores = { vibe: vScore, service: sScore, music: mScore };
+        existing.avgScore = avgScore;
+        existing.feedback = feedback ?? existing.feedback;
+        existing.isAnonymous = isAnonymous !== undefined ? Boolean(isAnonymous) : existing.isAnonymous;
+        await existing.save();
+
+        res.status(200).json({ success: true, message: 'Review updated', data: existing });
     } catch (err) { next(err); }
 };

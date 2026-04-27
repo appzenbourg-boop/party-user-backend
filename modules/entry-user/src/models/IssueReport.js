@@ -25,8 +25,10 @@ const issueReportSchema = new mongoose.Schema({
         required: true 
     },
     message: { type: String, required: true },
+    images: [{ type: String }],
     zone: { type: String, default: 'General' },
     tableId: { type: String, default: 'N/A' },
+    userName: { type: String, default: 'Guest' }, // Denormalized for cross-DB display
     status: { 
         type: String, 
         enum: ['open', 'in_progress', 'resolved'], 

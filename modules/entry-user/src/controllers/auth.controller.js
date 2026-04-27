@@ -9,8 +9,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { registerSchema, loginSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, sendOtpSchema, verifyOtpSchema } from '../validators/auth.validator.js';
 import sendEmail from '../utils/sendEmail.js';
-import { send2FactorOtp, verify2FactorOtp } from '../services/2factor.service.js';
-import { sendSmsOtp, verifySmsOtp } from '../services/twilio.service.js';
+import { sendSmsOtp, verifySmsOtp } from '../services/sms.service.js';
 import { cacheService } from '../services/cache.service.js';
 
 // ── Username Generation for Google Users ────────────────────────────────────
@@ -91,7 +90,7 @@ export const register = async (req, res, next) => {
             subject: 'Email Verification - Entry Club',
             message
         }).catch(err => {
-            console.error('Background Email sending failed:', err.message);
+            false && console.error('Background Email sending failed:', err.message);
         });
 
         res.status(201).json({
@@ -131,13 +130,13 @@ export const sendOtp = async (req, res, next) => {
                         { otp: otpCode, createdAt: new Date() }, 
                         { upsert: true, new: true, setDefaultsOnInsert: true }
                     );
-                    console.log(`[AUTH] Email OTP saved for ${identifier}`);
+                    false && console.log(`[AUTH] Email OTP saved for ${identifier}`);
                     const emailMsg = `Your Entry Club one-time password is: ${otpCode}. It will expire in 5 minutes.`;
                     sendEmail({ email: identifier, subject: 'Your Login OTP - Entry Club', message: emailMsg })
-                        .then(() => console.log(`[AUTH] OTP Email sent to ${identifier}`))
-                        .catch(err => console.error('[AUTH] Background OTP Email failed:', err.message));
+                        .then(() => false && console.log(`[AUTH] OTP Email sent to ${identifier}`))
+                        .catch(err => false && console.error('[AUTH] Background OTP Email failed:', err.message));
                 } catch (err) {
-                    console.error('[AUTH] Background email OTP failed:', err.message);
+                    false && console.error('[AUTH] Background email OTP failed:', err.message);
                 }
             }, 0);
 
@@ -146,11 +145,10 @@ export const sendOtp = async (req, res, next) => {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // ⚡ Check which SMS service to use
-            const useBypassMode = process.env.OTP_BYPASS === 'true';
-            const use2Factor = process.env.TWO_FACTOR_API_KEY && !useBypassMode;
+            // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
+            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
-            if (useBypassMode) {
+            if (useTwilioBypass) {
                 // 🔧 BYPASS MODE: Use local DB OTP (for testing/development)
                 const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
                 await Otp.findOneAndUpdate(
@@ -159,62 +157,33 @@ export const sendOtp = async (req, res, next) => {
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
                 console.log(`[AUTH BYPASS] Phone OTP for ${e164Phone}: ${otpCode}`);
-                
-                // Only show hint in development mode
-                const isDevelopment = process.env.NODE_ENV === 'development';
                 return res.status(200).json({
                     success: true,
-                    message: 'OTP sent successfully',
-                    data: { 
-                        type: 'phone', 
-                        hint: isDevelopment ? otpCode : undefined 
-                    }
+                    message: 'OTP sent (bypass mode)',
+                    data: { type: 'phone', hint: otpCode }
                 });
             }
 
-            // 🔒 PRODUCTION: Use 2Factor or Twilio
+            // 🔒 PRODUCTION: Use Twilio Verify with retry logic
             try {
-                if (use2Factor) {
-                    // Use 2Factor SMS Service
-                    const result = await send2FactorOtp(e164Phone);
-                    
-                    // Store session ID for verification
-                    await Otp.findOneAndUpdate(
-                        { identifier: e164Phone },
-                        { 
-                            otp: result.sessionId, // Store session ID instead of OTP
-                            createdAt: new Date() 
-                        },
-                        { upsert: true, new: true }
-                    );
-                    
-                    console.log(`[AUTH] 2Factor OTP sent to ${e164Phone}`);
-                    return res.status(200).json({ 
-                        success: true, 
-                        message: 'OTP sent to your phone via SMS', 
-                        data: { type: 'phone' } 
-                    });
-                } else {
-                    // Use Twilio Verify
-                    await sendSmsOtp(e164Phone);
-                    console.log(`[AUTH] Twilio OTP sent to ${e164Phone}`);
-                    return res.status(200).json({ 
-                        success: true, 
-                        message: 'OTP sent to your phone via SMS', 
-                        data: { type: 'phone' } 
-                    });
-                }
-            } catch (smsErr) {
-                console.error('[AUTH] SMS service failed:', smsErr.message);
+                await sendSmsOtp(e164Phone);
+                false && console.log(`[AUTH] Twilio OTP sent to ${e164Phone}`);
+                res.status(200).json({ 
+                    success: true, 
+                    message: 'OTP sent to your phone via SMS', 
+                    data: { type: 'phone' } 
+                });
+            } catch (twilioErr) {
+                false && console.error('[AUTH] Twilio sendSmsOtp failed:', twilioErr.message);
                 
-                // Fallback to DB OTP if SMS service fails
+                // Fallback to DB OTP if Twilio fails (graceful degradation)
                 const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
                 await Otp.findOneAndUpdate(
                     { identifier: e164Phone },
                     { otp: fallbackOtp, createdAt: new Date() },
                     { upsert: true, new: true }
                 );
-                console.log(`[AUTH FALLBACK] Using DB OTP for ${e164Phone}: ${fallbackOtp}`);
+                false && console.log(`[AUTH FALLBACK] Using DB OTP for ${e164Phone}: ${fallbackOtp}`);
                 
                 return res.status(200).json({ 
                     success: true, 
@@ -243,15 +212,15 @@ export const verifyOtp = async (req, res, next) => {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // ⚡ FAST-FIX: Temporarily hardcoded to true to bypass Twilio and save SMS quota
-            const useTwilioBypass = true; // process.env.TWILIO_BYPASS === 'true';
+            // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
+            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
             if (useTwilioBypass) {
                 // 🔧 BYPASS MODE: Check against local DB OTP
                 const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
                 if (currentOtp) {
                     verified = true;
-                    Otp.deleteOne({ _id: currentOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                    Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                 } else {
                     return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
                 }
@@ -264,18 +233,18 @@ export const verifyOtp = async (req, res, next) => {
                         const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
                         if (dbOtp) {
                             verified = true;
-                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                         } else {
                             return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
                         }
                     }
                 } catch (twilioErr) {
-                    console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
+                    false && console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
                     // Fallback to DB OTP check
                     const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
                     if (dbOtp) {
                         verified = true;
-                        Otp.deleteOne({ _id: dbOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                        Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                     } else {
                         return res.status(500).json({ success: false, message: 'OTP verification service error. Please try again.' });
                     }
@@ -287,7 +256,7 @@ export const verifyOtp = async (req, res, next) => {
 
             if (currentOtp) {
                 verified = true;
-                Otp.deleteOne({ _id: currentOtp._id }).catch(e => console.error('OTP Burn Error:', e.message));
+                Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
             } else {
                 return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
             }
@@ -303,7 +272,7 @@ export const verifyOtp = async (req, res, next) => {
         
         let user = null;
 
-        console.log('[Auth Debug] Attempting Login for:', identifierLower);
+        false && console.log('[Auth Debug] Attempting Login for:', identifierLower);
 
         // 🔒 STRICT ADMIN WHITELIST: Only these two can EVER have the ADMIN role
         const isAuthorizedAdmin = (identifierLower === whitelistEmail) || (identifierLower.replace(/\s/g, '').endsWith(whitelistPhone));
@@ -614,7 +583,7 @@ export const forgotPassword = async (req, res, next) => {
                 email: user.email,
                 subject: 'Password Reset Token',
                 message
-            }).catch(err => console.error('[AUTH] Background Reset Email failed:', err.message));
+            }).catch(err => false && console.error('[AUTH] Background Reset Email failed:', err.message));
 
             res.status(200).json({
                 success: true,
@@ -622,7 +591,7 @@ export const forgotPassword = async (req, res, next) => {
                 data: {}
             });
         } catch (err) {
-            console.error('Email sending failed:', err);
+            false && console.error('Email sending failed:', err);
             user.resetPasswordToken = undefined;
             user.resetPasswordExpire = undefined;
             await user.save({ validateBeforeSave: false });
@@ -724,7 +693,7 @@ export const completeOnboarding = async (req, res, next) => {
                    await User.findById(req.user.id);
 
         if (!user) {
-            console.error('[Onboarding] ID not found in ANY collection:', req.user.id);
+            false && console.error('[Onboarding] ID not found in ANY collection:', req.user.id);
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 

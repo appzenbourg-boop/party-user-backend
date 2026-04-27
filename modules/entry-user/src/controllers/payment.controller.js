@@ -43,7 +43,7 @@ export const createOrder = async (req, res, next) => {
     } catch (error) {
         // Surface Razorpay error description clearly
         const rpMsg = error?.error?.description || error?.message || 'Order creation failed';
-        console.error('[Razorpay createOrder error]', rpMsg, error?.statusCode);
+        false && console.error('[Razorpay createOrder error]', rpMsg, error?.statusCode);
         res.status(error?.statusCode || 500).json({ success: false, message: rpMsg });
     }
 };
@@ -99,21 +99,30 @@ export const verifyPayment = async (req, res, next) => {
                 paymentStatus: 'paid'
             });
 
-            // Immediately bust booking cache so My Bookings shows the new booking right away
+            // Immediately bust booking and event cache so My Bookings and Home show the new stats right away
             await cacheService.delete(`my_bookings_${userId}`);
+            await cacheService.clearPrefix('events:list');
+            await cacheService.delete(`event_${eventId}`);
 
-            // 2. Background tasks (non-blocking)
+            // ── CRITICAL FIX: bust floor-plan cache so ALL other users see the
+            // newly booked seat as 'booked' on their next API call. Without this,
+            // the old floor plan (with the seat still 'available') is served from
+            // Redis for up to 5 minutes after a booking.
+            await cacheService.delete(`floor_plan_${eventId}`);
+
             const tasks = [];
 
             // Atomic sold count update (using cleaned type for match)
             tasks.push(Event.updateOne(
                 { _id: eventId, "tickets.type": cleanTicketType },
-                { $inc: { "tickets.$.sold": numGuests } }
-            ).then(res => {
+                { $inc: { "tickets.$.sold": numGuests, attendeeCount: numGuests } }
+            ).then(async (res) => {
                 if (res.modifiedCount === 0) {
-                    console.warn(`[verifyPayment] ⚠️ Sold count NOT updated. Ticket "${cleanTicketType}" not found in Event ${eventId}`);
+                    false && console.warn(`[verifyPayment] ⚠️ Sold count NOT updated in tickets array. Ticket "${cleanTicketType}" not found in Event ${eventId}`);
+                    // Fallback: at least update the top level attendeeCount if exact ticket match failed
+                    await Event.updateOne({ _id: eventId }, { $inc: { attendeeCount: numGuests } });
                 }
-            }).catch(err => console.error('[Event Sold Count Error]', err.message)));
+            }).catch(err => false && console.error('[Event Sold Count Error]', err.message)));
 
             // System notification
             tasks.push(Notification.create({
@@ -131,13 +140,21 @@ export const verifyPayment = async (req, res, next) => {
                         { _id: userCouponId, userId, isUsed: false },
                         { isUsed: true },
                         { new: true }
-                    ).catch(err => console.error('[Coupon Mark Used Error]', err.message))
+                    ).catch(err => false && console.error('[Coupon Mark Used Error]', err.message))
                 );
             }
 
             await Promise.all(tasks);
 
-            // 3. 🔑 REFERRAL UNLOCK — fire-and-forget after booking confirmed
+            // ── REAL-TIME: Emit inventory_update so ALL connected floor-plan
+            // screens immediately trigger a refetch and show the seat as booked.
+            // This is the socket event the floor-plan.tsx already listens for.
+            const io = getIO();
+            if (io) {
+                io.emit('inventory_update', { eventId, bookedSeatIds: seatIds || [] });
+            }
+
+            // ─── REFERRAL UNLOCK — fire-and-forget after booking confirmed ───────
             (async () => {
                 try {
                     const reward = await ReferralReward.findOne({ 
@@ -170,10 +187,10 @@ export const verifyPayment = async (req, res, next) => {
                             { type: 'referral_reward' }
                         ).catch(() => {});
 
-                        console.log(`[verifyPayment] ✅ Referral unlocked: ${reward.pointsAmount} pts → referrer ${reward.referrerId}`);
+                        false && console.log(`[verifyPayment] ✅ Referral unlocked: ${reward.pointsAmount} pts → referrer ${reward.referrerId}`);
                     }
                 } catch (e) {
-                    console.error('[Referral Unlock Error]', e.message);
+                    false && console.error('[Referral Unlock Error]', e.message);
                 }
             })();
 
@@ -183,7 +200,15 @@ export const verifyPayment = async (req, res, next) => {
                 'Booking Confirmed! 🎉', 
                 `Your booking for ${ticketType} was successful. See you there!`, 
                 { type: 'booking', bookingId: booking._id.toString() }
-            ).catch(err => console.error('[Push Latency Error]', err.message));
+            ).catch(err => false && console.error('[Push Latency Error]', err.message));
+
+            // 5. Push notification to HOST
+            notificationService.sendToUser(
+                hostId,
+                '🎟️ New Ticket Booked!',
+                `A guest just booked ${ticketType}.`,
+                { type: 'booking', bookingId: booking._id.toString() }
+            ).catch(err => false && console.error('[Push Latency Error]', err.message));
 
             return res.status(200).json({
                 success: true,
@@ -201,7 +226,7 @@ export const verifyPayment = async (req, res, next) => {
 export const createFoodOrder = async (req, res, next) => {
     try {
         const { eventId, hostId: bodyHostId, items, subtotal, serviceFee = 0, tipAmount = 0, zone, tableId: bodyTableId } = req.body;
-        console.log('[BACKEND ORDER] Incoming Request:', { eventId, itemCount: items?.length, subtotal, total: Number(subtotal) + Number(serviceFee) + Number(tipAmount) });
+        false && console.log('[BACKEND ORDER] Incoming Request:', { eventId, itemCount: items?.length, subtotal, total: Number(subtotal) + Number(serviceFee) + Number(tipAmount) });
 
         if (!items || !items.length) {
             return res.status(400).json({ success: false, message: 'No items in order' });
@@ -224,7 +249,7 @@ export const createFoodOrder = async (req, res, next) => {
         } catch (rzpErr) {
             if (process.env.NODE_ENV !== 'production') {
                 // Simulation fallback: generate a fake Razorpay order so local tests work
-                console.warn('[BACKEND ORDER] Razorpay unavailable — using simulated order for non-prod testing');
+                false && console.warn('[BACKEND ORDER] Razorpay unavailable — using simulated order for non-prod testing');
                 razorpayOrder = {
                     id: `order_simulated_${Date.now()}`,
                     amount: Math.round(totalAmount * 100),
@@ -246,7 +271,7 @@ export const createFoodOrder = async (req, res, next) => {
         let hostId = bodyHostId || event?.hostId || bookingByEvent?.hostId;
         
         if (!hostId) {
-            console.warn('[BACKEND ORDER] No direct hostId found. Searching user\'s latest active booking...');
+            false && console.warn('[BACKEND ORDER] No direct hostId found. Searching user\'s latest active booking...');
             const lastAnyBooking = await Booking.findOne({ userId: req.user.id }).sort({ createdAt: -1 }).lean();
             hostId = lastAnyBooking?.hostId;
         }
@@ -267,6 +292,50 @@ export const createFoodOrder = async (req, res, next) => {
                 };
         });
 
+        let finalTableId = (bodyTableId && bodyTableId !== 'Floor') ? bodyTableId : (bookingByEvent?.tableId || 'Floor');
+        
+        // Resolve ugly Mongo Object IDs or seat slugs into human-readable Table Names
+        if (finalTableId && typeof finalTableId === 'string') {
+            if (finalTableId.includes('_s')) {
+                const seatNumber = finalTableId.split('_s')[1];
+                if (seatNumber) finalTableId = `Table ${seatNumber}`;
+            } else if (finalTableId.length === 24 && /^[0-9a-fA-F]{24}$/.test(finalTableId)) {
+                // It's a raw Mongo ObjectId! Let's look up the table name
+                try {
+                    const targetEventId = eventId || bookingByEvent?.eventId;
+                    const eventDoc = targetEventId ? await Event.findById(targetEventId).select('floors tickets').lean() : null;
+                    let foundName = null;
+
+                    // 1. Check embedded event floors
+                    if (eventDoc && eventDoc.floors) {
+                        const floor = eventDoc.floors.find(f => f._id && f._id.toString() === finalTableId);
+                        if (floor && floor.name) foundName = floor.name;
+                    }
+                    // 2. Check standalone Floor collection
+                    if (!foundName) {
+                        try {
+                            const { Floor } = await import('../models/Floor.js');
+                            const standaloneFloor = await Floor.findById(finalTableId).select('name').lean();
+                            if (standaloneFloor && standaloneFloor.name) foundName = standaloneFloor.name;
+                        } catch (e) { /* ignore import/query errors */ }
+                    }
+                    // 3. Check embedded event tickets
+                    if (!foundName && eventDoc && eventDoc.tickets) {
+                        const ticket = eventDoc.tickets.find(t => t._id && t._id.toString() === finalTableId);
+                        if (ticket && (ticket.name || ticket.type)) foundName = ticket.name || ticket.type;
+                    }
+                    // 4. Fallback to formatting the ID nicely if not found
+                    if (foundName) {
+                        finalTableId = foundName;
+                    } else {
+                        finalTableId = `Table ${finalTableId.substring(0, 4).toUpperCase()}`;
+                    }
+                } catch (e) {
+                    false && console.error('[Backend Order] Error resolving table name:', e);
+                }
+            }
+        }
+
         const foodOrder = await FoodOrder.create({
             userId: req.user.id,
             eventId: eventId || bookingByEvent?.eventId || null,
@@ -277,14 +346,14 @@ export const createFoodOrder = async (req, res, next) => {
             serviceFee: Number(serviceFee || 0),
             tipAmount: Number(tipAmount || 0),
             totalAmount: totalAmount,
-            zone: bookingByEvent?.ticketType || zone || 'general',
-            tableId: bodyTableId || bookingByEvent?.tableId || 'Floor',
+            zone: (zone && zone !== 'Standard' && zone !== 'general') ? zone : (bookingByEvent?.ticketType || 'general'),
+            tableId: finalTableId,
             status: 'payment_pending',
             paymentStatus: 'pending',
             transactionId: razorpayOrder.id
         });
 
-        console.log('[BACKEND ORDER] Created FoodOrder ID:', foodOrder._id, 'Razorpay ID:', razorpayOrder.id);
+        false && console.log('[BACKEND ORDER] Created FoodOrder ID:', foodOrder._id, 'Razorpay ID:', razorpayOrder.id);
 
         res.status(200).json({
             success: true,
@@ -292,7 +361,7 @@ export const createFoodOrder = async (req, res, next) => {
             foodOrderId: foodOrder._id
         });
     } catch (error) {
-         console.error('[Razorpay createFoodOrder error]', error);
+         false && console.error('[Razorpay createFoodOrder error]', error);
          res.status(500).json({ success: false, message: 'Failed to initiate food order payment' });
     }
 };
@@ -306,7 +375,7 @@ export const verifyFoodPayment = async (req, res, next) => {
             foodOrderId
         } = req.body;
 
-        console.log('[BACKEND VERIFY] Incoming Verification for FoodOrder:', foodOrderId, 'Razorpay Payment:', razorpay_payment_id);
+        false && console.log('[BACKEND VERIFY] Incoming Verification for FoodOrder:', foodOrderId, 'Razorpay Payment:', razorpay_payment_id);
 
         const sign = razorpay_order_id + "|" + razorpay_payment_id;
         const expectedSign = crypto
@@ -359,7 +428,7 @@ export const verifyFoodPayment = async (req, res, next) => {
                     type: 'order',
                     data: { orderId: updatedOrder._id }
                 })
-            ]).catch(err => console.error('[Order Notification Latency Error]', err.message));
+            ]).catch(err => false && console.error('[Order Notification Latency Error]', err.message));
 
             return res.status(200).json({
                 success: true,
