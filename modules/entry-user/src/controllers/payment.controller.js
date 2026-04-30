@@ -2,6 +2,7 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { Booking } from '../models/booking.model.js';
 import { Event } from '../models/Event.js';
+import { Host } from '../models/Host.js';
 import Notification from '../models/Notification.js';
 import { getIO } from '../socket.js';
 import { notificationService } from '../services/notification.service.js';
@@ -84,7 +85,15 @@ export const verifyPayment = async (req, res, next) => {
                 return res.status(400).json({ success: false, message: 'Could not resolve hostId for this event' });
             }
 
-            // 2. Create booking
+            // 2. Fetch host's custom commission rate (default 10% if not set)
+            const host = await Host.findById(hostId).select('commissionRate').lean();
+            const commissionRate = (host?.commissionRate ?? 10) / 100;
+
+            // 3. Calculate Commission Split dynamically
+            const adminCommission = (pricePaid || 0) * commissionRate;
+            const hostEarnings = (pricePaid || 0) * (1 - commissionRate);
+
+            // 4. Create booking
             const booking = await Booking.create({
                 userId,
                 hostId,
@@ -94,6 +103,8 @@ export const verifyPayment = async (req, res, next) => {
                 tableId: tableId || (seatIds && seatIds[0]) || null,
                 seatIds: seatIds || [],
                 pricePaid: pricePaid || 0,
+                adminCommission: adminCommission,
+                hostEarnings: hostEarnings,
                 guests: numGuests,
                 status: 'approved',
                 paymentStatus: 'paid'

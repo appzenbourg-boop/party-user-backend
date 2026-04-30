@@ -8,16 +8,16 @@
 
 import twilio from 'twilio';
 
-const accountSid  = process.env.TWILIO_ACCOUNT_SID;
-const authToken   = process.env.TWILIO_AUTH_TOKEN;
-const serviceSid  = process.env.TWILIO_VERIFY_SERVICE_SID;
-
 // Lazy-init so the service still boots even if env vars are missing
 const getClient = () => {
+    const accountSid  = process.env.TWILIO_ACCOUNT_SID;
+    const authToken   = process.env.TWILIO_AUTH_TOKEN;
+    const serviceSid  = process.env.TWILIO_VERIFY_SERVICE_SID;
+
     if (!accountSid || !authToken || !serviceSid) {
         throw new Error('[Twilio] Missing TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_VERIFY_SERVICE_SID in .env');
     }
-    return twilio(accountSid, authToken);
+    return { client: twilio(accountSid, authToken), serviceSid };
 };
 
 /**
@@ -26,7 +26,7 @@ const getClient = () => {
  * @returns {Promise<{sid: string, status: string}>}
  */
 export const sendSmsOtp = async (phoneNumber) => {
-    const client = getClient();
+    const { client, serviceSid } = getClient();
     const verification = await client.verify.v2
         .services(serviceSid)
         .verifications
@@ -43,7 +43,7 @@ export const sendSmsOtp = async (phoneNumber) => {
  * @returns {Promise<boolean>}  true = approved, false = invalid/expired
  */
 export const verifySmsOtp = async (phoneNumber, code) => {
-    const client = getClient();
+    const { client, serviceSid } = getClient();
     const check = await client.verify.v2
         .services(serviceSid)
         .verificationChecks

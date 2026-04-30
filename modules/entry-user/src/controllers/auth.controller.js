@@ -174,7 +174,7 @@ export const sendOtp = async (req, res, next) => {
                     data: { type: 'phone' } 
                 });
             } catch (twilioErr) {
-                false && console.error('[AUTH] Twilio sendSmsOtp failed:', twilioErr.message);
+                console.error('[AUTH] Twilio sendSmsOtp failed:', twilioErr.message);
                 
                 // Fallback to DB OTP if Twilio fails (graceful degradation)
                 const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
