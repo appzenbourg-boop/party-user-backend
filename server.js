@@ -35,6 +35,7 @@ import walletRoutes         from './modules/entry-user/src/routes/wallet.routes.
 import couponRoutes         from './modules/entry-user/src/routes/coupon.routes.js';
 import referralRewardRoutes from './modules/entry-user/src/routes/referralReward.routes.js';
 import supportRoutes        from './modules/entry-user/src/routes/support.routes.js';
+import hostWalletRoutes    from './modules/entry-user/src/routes/host.wallet.routes.js';
 import testRoutes           from './modules/entry-user/src/routes/test.routes.js';
 import { errorHandler, notFoundHandler } from './modules/entry-user/src/middleware/error.js';
 
@@ -181,6 +182,7 @@ app.use('/api/v1/chat',             chatRoutes);
 app.use('/api/v1/wallet',           walletRoutes);
 app.use('/api/v1/coupons',          couponRoutes);
 app.use('/api/v1/referral',         referralRewardRoutes);
+app.use('/api/v1/host/wallet',    hostWalletRoutes);
 app.use('/invite',                  referralRewardRoutes);
 app.use('/test',                    testRoutes); // Test endpoints for development
 
