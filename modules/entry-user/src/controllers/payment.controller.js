@@ -35,25 +35,6 @@ export const createOrder = async (req, res, next) => {
             receipt: receipt ? String(receipt).substring(0, 40) : `rcpt_${Date.now()}`.substring(0, 40),
         };
 
-        // 🔗 RAZORPAY ROUTE: Automatic Split if Host has a linked account
-        const { hostId } = req.body;
-        if (hostId) {
-            const host = await Host.findById(hostId).select('razorpayAccountId commissionRate').lean();
-            if (host?.razorpayAccountId) {
-                const commissionRate = (host.commissionRate ?? 10) / 100;
-                const hostEarnings = amountNum * (1 - commissionRate);
-                
-                options.transfers = [
-                    {
-                        account: host.razorpayAccountId,
-                        amount: Math.round(hostEarnings * 100), // Host's share in paise
-                        currency: 'INR',
-                        on_linked_account_settlement: true // Fully automatic bank transfer
-                    }
-                ];
-            }
-        }
-
         const order = await razorpay.orders.create(options);
 
         res.status(200).json({
@@ -133,13 +114,12 @@ export const verifyPayment = async (req, res, next) => {
             await cacheService.delete(`my_bookings_${userId}`);
             await cacheService.clearPrefix('events:list');
             await cacheService.delete(`event_${eventId}`);
-            await cacheService.delete(`floor_plan_${eventId}`);
 
-            // ── BUST ANALYTICS CACHE (Immediate Dashboard Updates) ───────────────────
-            await cacheService.delete('analytics_summary_admin_all');
-            await cacheService.delete(`analytics_summary_${hostId}`);
-            await cacheService.delete('analytics_trend_admin_all');
-            await cacheService.delete(`analytics_trend_${hostId}`);
+            // ── CRITICAL FIX: bust floor-plan cache so ALL other users see the
+            // newly booked seat as 'booked' on their next API call. Without this,
+            // the old floor plan (with the seat still 'available') is served from
+            // Redis for up to 5 minutes after a booking.
+            await cacheService.delete(`floor_plan_${eventId}`);
 
             const tasks = [];
 
@@ -154,12 +134,6 @@ export const verifyPayment = async (req, res, next) => {
                     await Event.updateOne({ _id: eventId }, { $inc: { attendeeCount: numGuests } });
                 }
             }).catch(err => false && console.error('[Event Sold Count Error]', err.message)));
-
-            // ── UPDATE HOST WALLET ──────────────────────────────────────────────────
-            tasks.push(Host.updateOne(
-                { _id: hostId },
-                { $inc: { currentBalance: hostEarnings, totalEarnings: hostEarnings } }
-            ).catch(err => console.error('[Host Wallet Update Error]', err.message)));
 
             // System notification
             tasks.push(Notification.create({
@@ -278,39 +252,11 @@ export const createFoodOrder = async (req, res, next) => {
         // 1. Create Razorpay order — with simulation fallback for local/Expo Go testing
         let razorpayOrder;
         try {
-            const options = {
+            razorpayOrder = await razorpay.orders.create({
                 amount: Math.round(totalAmount * 100), // paise
                 currency: 'INR',
                 receipt: `food_${Date.now()}`.substring(0, 40),
-            };
-
-            // 🔗 RAZORPAY ROUTE: Automatic Split for Food Orders
-            // Note: hostId is resolved in the next step, but we need it here.
-            // Let's resolve hostId FIRST.
-            const [bookingByEvent, event] = await Promise.all([
-                eventId ? Booking.findOne({ userId: req.user.id, eventId }).sort({ createdAt: -1 }).lean() : Promise.resolve(null),
-                eventId ? Event.findById(eventId).select('hostId').lean() : Promise.resolve(null)
-            ]);
-
-            const resolvedHostId = bodyHostId || event?.hostId || bookingByEvent?.hostId;
-            if (resolvedHostId) {
-                const host = await Host.findById(resolvedHostId).select('razorpayAccountId commissionRate').lean();
-                if (host?.razorpayAccountId) {
-                    const commissionRate = (host.commissionRate ?? 10) / 100;
-                    const hostEarnings = totalAmount * (1 - commissionRate);
-                    
-                    options.transfers = [
-                        {
-                            account: host.razorpayAccountId,
-                            amount: Math.round(hostEarnings * 100),
-                            currency: 'INR',
-                            on_linked_account_settlement: true
-                        }
-                    ];
-                }
-            }
-
-            razorpayOrder = await razorpay.orders.create(options);
+            });
         } catch (rzpErr) {
             if (process.env.NODE_ENV !== 'production') {
                 // Simulation fallback: generate a fake Razorpay order so local tests work
