@@ -13,6 +13,7 @@ import { PointsWallet } from '../models/PointsWallet.js';
 import { User } from '../models/user.model.js';
 import { UserCoupon } from '../models/UserCoupon.js';
 import { cacheService } from '../services/cache.service.js';
+import { WalletTransaction } from '../models/WalletTransaction.js';
 
 const razorpay = new Razorpay({
     key_id:     process.env.RAZORPAY_KEY_ID     || 'rzp_test_SPXu9raqQAlU2T',
@@ -108,6 +109,28 @@ export const verifyPayment = async (req, res, next) => {
                 guests: numGuests,
                 status: 'approved',
                 paymentStatus: 'paid'
+            });
+
+            // 5. Update Host Wallet (Atomic)
+            const updatedHost = await Host.findByIdAndUpdate(
+                hostId,
+                { 
+                    $inc: { 
+                        'wallet.balance': hostEarnings,
+                        'wallet.totalEarned': hostEarnings 
+                    } 
+                },
+                { new: true }
+            );
+
+            // 6. Create Wallet Transaction Ledger
+            await WalletTransaction.create({
+                hostId,
+                amount: hostEarnings,
+                type: 'CREDIT',
+                description: `Earning from Booking #${booking._id.toString().slice(-6)}`,
+                bookingId: booking._id,
+                balanceAfter: updatedHost?.wallet?.balance || hostEarnings
             });
 
             // Immediately bust booking and event cache so My Bookings and Home show the new stats right away
