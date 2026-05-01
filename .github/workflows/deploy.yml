@@ -2,7 +2,7 @@ name: AWS Production Deployment
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, featurebranch ]
 
 jobs:
   deploy:
@@ -21,8 +21,17 @@ jobs:
           key: ${{ secrets.AWS_SSH_KEY }}
           port: 22
           script: |
-            cd /home/ubuntu/party-user-backend
-            git pull origin main
+            # Try both possible paths just in case
+            if [ -d "/home/ubuntu/party-user-backend" ]; then
+              cd /home/ubuntu/party-user-backend
+            elif [ -d "/home/ubuntu/party/party-user-backend" ]; then
+              cd /home/ubuntu/party/party-user-backend
+            else
+              echo "❌ Error: Could not find project directory!"
+              exit 1
+            fi
+            
+            git pull origin main || git pull origin featurebranch
             npm install --production
-            pm2 restart user-backend
+            pm2 restart user-backend || pm2 start server.js --name user-backend
             echo "🚀 User Backend Deployment successful!"
