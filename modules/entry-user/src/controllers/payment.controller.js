@@ -434,6 +434,11 @@ export const verifyFoodPayment = async (req, res, next) => {
 
             // Invalidate the user's cached food orders
             await cacheService.delete(`my_orders_${updatedOrder.userId}`);
+            
+            // ⚡ Invalidate Waiter cache immediately so it appears on their screen
+            if (updatedOrder.hostId) {
+                await cacheService.clearPrefix(`orders:available:${updatedOrder.hostId}`);
+            }
 
             // High Performance Side Effects (Non-blocking)
 
