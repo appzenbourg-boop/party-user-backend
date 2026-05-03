@@ -3,6 +3,10 @@ import { SupportMessage } from '../models/support.model.js';
 import Joi from 'joi';
 import { cacheService } from '../services/cache.service.js';
 import { cleanTableId, cleanZone } from '../utils/tableUtils.js';
+import { User } from '../models/user.model.js';
+import { Booking } from '../models/booking.model.js';
+import { IssueReport } from '../models/IssueReport.js';
+import { Review } from '../models/Review.js';
 
 // Validation Schema
 export const askSupportSchema = Joi.object({
@@ -169,7 +173,6 @@ export const submitBugReport = async (req, res, next) => {
         console.log('📡 [API HIT] /user/report-bug Triggered');
         console.log('=============================================');
         const { description, images, metadata } = req.body;
-        const { User } = await import('../models/user.model.js');
         const user = await User.findById(req.user.id).select('name email username profileImage').lean();
 
         let uploadedUrls = [];
@@ -214,7 +217,6 @@ export const submitSupportRequest = async (req, res, next) => {
         console.log('📡 [API HIT] /user/support-ticket Triggered');
         console.log('=============================================');
         const { name, message } = req.body;
-        const { User } = await import('../models/user.model.js');
         const user = await User.findById(req.user.id).select('email username').lean();
 
         const transporter = (await import('nodemailer')).default.createTransport({
@@ -252,14 +254,11 @@ export const submitIncidentReport = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'type and message are required' });
         }
 
-        const { IssueReport } = await import('../models/IssueReport.js');
-        
         // If eventId/hostId not provided, try to get from active booking
         let finalEventId = eventId;
         let finalHostId = hostId;
         
         if (!finalEventId || !finalHostId) {
-            const { Booking } = await import('../models/booking.model.js');
             const activeBooking = await Booking.findOne({ 
                 userId, 
                 status: 'checked_in'
@@ -282,7 +281,6 @@ export const submitIncidentReport = async (req, res, next) => {
         let finalZone = zone;
 
         if (!finalTable || finalTable === 'N/A' || finalTable === '--' || finalTable.trim() === '' || !finalZone) {
-            const { Booking } = await import('../models/booking.model.js');
             const booking = await Booking.findOne({ userId, eventId: finalEventId })
                 .select('tableId ticketType')
                 .sort({ createdAt: -1 })

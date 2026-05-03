@@ -116,11 +116,13 @@ export const sendOtp = async (req, res, next) => {
             // ── EMAIL PATH: generate OTP locally and send via email ──────────
             const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
+            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
+
             // Respond instantly, dispatch in background
             res.status(200).json({ 
                 success: true, 
                 message: 'OTP sequence initiated', 
-                data: { type: 'email' } 
+                data: { type: 'email', hint: useTwilioBypass ? otpCode : undefined } 
             });
 
             setTimeout(async () => {

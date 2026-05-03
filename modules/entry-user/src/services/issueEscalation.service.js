@@ -13,6 +13,9 @@ export const initIssueEscalationService = () => {
 
     setInterval(async () => {
         try {
+            const mongoose = (await import('mongoose')).default;
+            if (mongoose.connection.readyState !== 1) return;
+
             const cutoff = new Date(Date.now() - ESCALATION_WINDOW_MS);
 
             const stalledIssues = await IssueReport.find({

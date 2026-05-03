@@ -6,6 +6,12 @@ export const startCronJobs = () => {
     // Run every minute
     cron.schedule('* * * * *', async () => {
         try {
+            const mongoose = (await import('mongoose')).default;
+            if (mongoose.connection.readyState !== 1) {
+                console.log('[Cron] Database not ready, skipping expiration job.');
+                return;
+            }
+
             const now = new Date();
             // Find all LIVE events whose date + endTime is in the past
             // Or simplified: Just check if date < today, or if today, if endTime has elapsed.

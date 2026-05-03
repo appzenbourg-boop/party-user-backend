@@ -11,6 +11,12 @@ export const checkAndRevealLocations = async () => {
     isRunning = true;
 
     try {
+        const mongoose = (await import('mongoose')).default;
+        if (mongoose.connection.readyState !== 1) {
+            isRunning = false;
+            return;
+        }
+
         const now = new Date();
         
         // Find events that are delayed, not yet revealed, and revealTime has passed
