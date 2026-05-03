@@ -143,6 +143,38 @@ export const getChatPeers = async (req, res) => {
 };
 
 /**
+ * DELETE /api/v1/chat/messages/:messageId
+ * Hard-deletes a single message. Only the sender can delete it.
+ */
+export const deleteMessage = async (req, res) => {
+    try {
+        const currentUserId = req.user.id;
+        const { messageId } = req.params;
+
+        if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) {
+            return res.status(400).json({ success: false, message: 'Invalid message ID' });
+        }
+
+        const message = await Message.findById(messageId);
+        if (!message) {
+            // Already deleted — treat as success to avoid confusing the user
+            return res.status(200).json({ success: true, message: 'Message already deleted' });
+        }
+
+        // Only the sender can unsend
+        if (String(message.sender) !== String(currentUserId)) {
+            return res.status(403).json({ success: false, message: 'You can only unsend your own messages' });
+        }
+
+        await Message.findByIdAndDelete(messageId);
+        res.status(200).json({ success: true, message: 'Message deleted' });
+    } catch (error) {
+        console.error('deleteMessage Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+/**
  * DELETE /api/v1/chat/:peerId
  * Deletes all messages between the current user and the given peer.
  */
