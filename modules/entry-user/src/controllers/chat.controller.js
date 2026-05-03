@@ -143,6 +143,43 @@ export const getChatPeers = async (req, res) => {
 };
 
 /**
+ * PATCH /api/v1/chat/messages/:messageId
+ * Edit the content of a message. Only the sender can edit it.
+ */
+export const editMessage = async (req, res) => {
+    try {
+        const currentUserId = req.user.id;
+        const { messageId } = req.params;
+        const { content } = req.body;
+
+        if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) {
+            return res.status(400).json({ success: false, message: 'Invalid message ID' });
+        }
+        if (!content || !content.trim()) {
+            return res.status(400).json({ success: false, message: 'Message content cannot be empty' });
+        }
+
+        const message = await Message.findById(messageId);
+        if (!message) {
+            return res.status(404).json({ success: false, message: 'Message not found' });
+        }
+        if (String(message.sender) !== String(currentUserId)) {
+            return res.status(403).json({ success: false, message: 'You can only edit your own messages' });
+        }
+
+        message.content = content.trim();
+        message.isEdited = true;
+        message.editedAt = new Date();
+        await message.save();
+
+        res.status(200).json({ success: true, data: message });
+    } catch (error) {
+        console.error('editMessage Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+/**
  * DELETE /api/v1/chat/messages/:messageId
  * Hard-deletes a single message. Only the sender can delete it.
  */
