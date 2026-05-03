@@ -167,7 +167,7 @@ export const getEventBasic = async (req, res, next) => {
 
         // ⚡ ULTRA FAST: Populate hostId directly in one query
         const item = await Event.findById(id)
-            .select('title date startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
+            .select('title date endDate startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
             .populate({
                 path: 'hostId',
                 select: 'firstName lastName name profileImage',
@@ -237,12 +237,57 @@ export const getEventTickets = async (req, res, next) => {
             return res.status(200).json({ success: true, data: cached });
         }
         
-        const event = await Event.findById(id).select('tickets floors bookingOpenDate').lean();
+        const [event, dedicatedFloors, activeBookings] = await Promise.all([
+            Event.findById(id).select('tickets floors bookingOpenDate').lean(),
+            Floor.find({ eventId: id }).select('name capacity price type').lean(),
+            Booking.find({ eventId: id, status: { $ne: 'cancelled' } }).select('ticketType tableId guests seatIds').lean()
+        ]);
+        
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
         
+        // ⚡ Calculate live occupancy per ticket/zone
+        const occupancyMap = {};
+        activeBookings.forEach(b => {
+            let count = b.guests || 1;
+            if (b.seatIds && b.seatIds.length > 0) {
+                count = b.seatIds.length;
+            }
+            if (b.ticketType) {
+                const tName = b.ticketType.replace(/\s+zone$/i, '').trim().toLowerCase();
+                occupancyMap[tName] = (occupancyMap[tName] || 0) + count;
+            }
+            if (b.tableId) {
+                const fName = b.tableId.trim().toLowerCase();
+                occupancyMap[fName] = (occupancyMap[fName] || 0) + count;
+            }
+        });
+
+        const liveTickets = (event.tickets || []).map(t => {
+            const tName = (t.name || t.type || '').trim().toLowerCase();
+            return {
+                ...t,
+                bookedCount: Math.max(t.sold || 0, occupancyMap[tName] || 0)
+            };
+        });
+
+        let zones = [];
+        const rawZones = dedicatedFloors.length > 0 ? dedicatedFloors : (event.floors || event.tickets || []);
+        
+        zones = rawZones.slice(0, 10).map(f => {
+            const fName = (f.name || f.type || '').trim().toLowerCase();
+            return {
+                _id: f._id,
+                name: f.name || f.type,
+                capacity: f.capacity || 24,
+                price: f.price,
+                type: f.type,
+                bookedCount: Math.max(f.sold || 0, occupancyMap[fName] || 0)
+            };
+        });
+        
         const data = {
-            tickets: event.tickets || [],
-            floors: event.floors || []
+            tickets: liveTickets,
+            floors: zones
         };
         
         cacheService.set(cacheKey, data, 300).catch(() => {});
@@ -273,16 +318,17 @@ export const getEventFull = async (req, res, next) => {
 
         // ⚡ STEP 2: Parallel execution - fetch everything at once
         const dbStart = Date.now();
-        const [event, dedicatedFloors] = await Promise.all([
+        const [event, dedicatedFloors, activeBookings] = await Promise.all([
             Event.findById(id)
-                .select('title date startTime endTime coverImage images status hostId locationVisibility isLocationRevealed locationData floorCount attendeeCount description houseRules freeRefreshmentsCount tickets floors bookingOpenDate')
+                .select('title date endDate startTime endTime coverImage images status hostId locationVisibility isLocationRevealed locationData floorCount attendeeCount description houseRules freeRefreshmentsCount tickets floors bookingOpenDate')
                 .populate({
                     path: 'hostId',
                     select: 'firstName lastName name profileImage',
                     options: { lean: true }
                 })
                 .lean(),
-            Floor.find({ eventId: id }).select('name capacity price type').lean()
+            Floor.find({ eventId: id }).select('name capacity price type').lean(),
+            Booking.find({ eventId: id, status: { $ne: 'cancelled' } }).select('ticketType tableId guests seatIds').lean()
         ]);
         false && console.log(`[⚡ DB] Parallel queries: ${Date.now() - dbStart}ms`);
 
@@ -308,17 +354,50 @@ export const getEventFull = async (req, res, next) => {
             event.isLocationMasked = true;
         }
 
+        // ⚡ STEP 4.5: Calculate live occupancy per ticket/zone
+        const occupancyMap = {};
+        let totalEventSold = 0;
+        
+        activeBookings.forEach(b => {
+            let count = b.guests || 1;
+            if (b.seatIds && b.seatIds.length > 0) {
+                count = b.seatIds.length;
+            }
+            totalEventSold += count;
+            
+            if (b.ticketType) {
+                const tName = b.ticketType.replace(/\s+zone$/i, '').trim().toLowerCase();
+                occupancyMap[tName] = (occupancyMap[tName] || 0) + count;
+            }
+            if (b.tableId) {
+                const fName = b.tableId.trim().toLowerCase();
+                occupancyMap[fName] = (occupancyMap[fName] || 0) + count;
+            }
+        });
+
+        const liveTickets = (event.tickets || []).map(t => {
+            const tName = (t.name || t.type || '').trim().toLowerCase();
+            return {
+                ...t,
+                bookedCount: Math.max(t.sold || 0, occupancyMap[tName] || 0)
+            };
+        });
+
         // ⚡ STEP 5: Build floor plan (lightweight)
         let zones = [];
         const rawZones = dedicatedFloors.length > 0 ? dedicatedFloors : (event.floors || event.tickets || []);
         
-        zones = rawZones.slice(0, 10).map(f => ({ // Limit to 10 zones max
-            _id: f._id,
-            name: f.name || f.type,
-            capacity: f.capacity || 24,
-            price: f.price,
-            type: f.type
-        }));
+        zones = rawZones.slice(0, 10).map(f => {
+            const fName = (f.name || f.type || '').trim().toLowerCase();
+            return {
+                _id: f._id,
+                name: f.name || f.type,
+                capacity: f.capacity || 24,
+                price: f.price,
+                type: f.type,
+                bookedCount: Math.max(f.sold || 0, occupancyMap[fName] || 0)
+            };
+        });
 
         // ⚡ STEP 6: Build optimized response (< 100KB target)
         const data = {
@@ -326,6 +405,7 @@ export const getEventFull = async (req, res, next) => {
             _id: event._id,
             title: event.title,
             date: event.date,
+            endDate: event.endDate,
             startTime: event.startTime,
             endTime: event.endTime,
             coverImage: event.coverImage,
@@ -346,7 +426,7 @@ export const getEventFull = async (req, res, next) => {
             bookingOpenDate: event.bookingOpenDate,
             
             // Tickets & Floors
-            tickets: event.tickets || [],
+            tickets: liveTickets,
             floors: zones
         };
 
@@ -523,7 +603,10 @@ export const bookEvent = async (req, res, next) => {
             await Promise.all([
                 cacheService.delete(cacheService.formatKey('active_event', req.user.id)),
                 cacheService.delete(cacheService.formatKey('booking', req.user.id, eventId)),
-                cacheService.delete(cacheService.formatKey('my-bookings', req.user.id))
+                cacheService.delete(cacheService.formatKey('my-bookings', req.user.id)),
+                cacheService.delete(cacheService.formatKey('event_full_v1', eventId)),
+                cacheService.delete(cacheService.formatKey('event_tickets_v2', eventId)),
+                cacheService.delete(`floor_plan_${eventId}`)
             ]);
         })().catch(e => false && console.error('[Event Sync Fail]', e.message));
 

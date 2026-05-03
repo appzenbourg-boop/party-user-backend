@@ -75,8 +75,8 @@ export const verifyPayment = async (req, res, next) => {
             const userId = req.user.id;
 
             // ── Robust Ticket Type Handling ─────────────────────────────────────
-            // If the frontend sends "VIP Zone (Split)", we want to match "VIP Zone" in the DB.
-            const cleanTicketType = String(ticketType || '').replace(/\s*\(Split\)\s*/i, '').replace(/\s*\(Guest\)\s*/i, '').trim();
+            // If the frontend sends "VIP Zone (Split)", we want to match "VIP Zone" or "VIP" in the DB.
+            const cleanTicketType = String(ticketType || '').replace(/\s*\(Split\)\s*/i, '').replace(/\s*\(Guest\)\s*/i, '').replace(/\s+Zone$/i, '').trim();
 
             // 1. Fetch event first to reliably get hostId (don't trust client)
             const event = await Event.findById(eventId).select('hostId tickets').lean();
@@ -158,6 +158,8 @@ export const verifyPayment = async (req, res, next) => {
             // the old floor plan (with the seat still 'available') is served from
             // Redis for up to 5 minutes after a booking.
             await cacheService.delete(`floor_plan_${eventId}`);
+            await cacheService.delete(`event_full_v1_${eventId}`); // Ensure ultra-fast endpoint gets busted
+            await cacheService.delete(`event_tickets_v2_${eventId}`); // Ensure tickets endpoint gets busted
 
             const tasks = [];
 
