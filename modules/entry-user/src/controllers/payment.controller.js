@@ -94,15 +94,30 @@ export const verifyPayment = async (req, res, next) => {
             const adminCommission = (pricePaid || 0) * commissionRate;
             const hostEarnings = (pricePaid || 0) * (1 - commissionRate);
 
-            // 4. Create booking
+            // 4. Resolve / generate seatIds
+            //    - If the user selected explicit seats from the floor plan → use them as-is
+            //    - Otherwise (General Access, no floor plan) → generate sequential IDs
+            //      so every booking always has a concrete, readable seat reference.
+            let resolvedSeatIds = Array.isArray(seatIds) && seatIds.length > 0 ? seatIds : [];
+            let resolvedTableId = tableId || (resolvedSeatIds.length > 0 ? resolvedSeatIds[0] : null);
+
+            if (resolvedSeatIds.length === 0 && numGuests > 0) {
+                // Generate IDs like "<bookingShortId>_s1", "<bookingShortId>_s2" ...
+                // We don't have booking._id yet, so use a random base
+                const base = Math.random().toString(36).substring(2, 10).toUpperCase();
+                resolvedSeatIds = Array.from({ length: numGuests }, (_, i) => `${base}_s${i + 1}`);
+                resolvedTableId = resolvedTableId || resolvedSeatIds[0];
+            }
+
+            // 5. Create booking
             const booking = await Booking.create({
                 userId,
                 hostId,
                 eventId,
                 serviceId: eventId,
                 ticketType: ticketType || 'General Admit',
-                tableId: tableId || (seatIds && seatIds[0]) || null,
-                seatIds: seatIds || [],
+                tableId: resolvedTableId,
+                seatIds: resolvedSeatIds,
                 pricePaid: pricePaid || 0,
                 adminCommission: adminCommission,
                 hostEarnings: hostEarnings,
