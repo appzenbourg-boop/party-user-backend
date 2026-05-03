@@ -194,7 +194,7 @@ export const deleteMessage = async (req, res) => {
 
         const message = await Message.findById(messageId);
         if (!message) {
-            // Already deleted — treat as success to avoid confusing the user
+            // Already deleted — treat as success
             return res.status(200).json({ success: true, message: 'Message already deleted' });
         }
 
@@ -203,7 +203,22 @@ export const deleteMessage = async (req, res) => {
             return res.status(403).json({ success: false, message: 'You can only unsend your own messages' });
         }
 
+        const receiverId = String(message.receiver);
+
         await Message.findByIdAndDelete(messageId);
+
+        // ⚡ Notify the other user in real-time so it disappears from their screen too
+        try {
+            const { getIO } = await import('../config/socket.js');
+            const io = getIO();
+            io.to(receiverId).emit('message_deleted', {
+                messageId,
+                senderId: currentUserId,
+            });
+        } catch (socketErr) {
+            // Socket emit failure is non-critical — DB deletion already succeeded
+        }
+
         res.status(200).json({ success: true, message: 'Message deleted' });
     } catch (error) {
         console.error('deleteMessage Error:', error);
