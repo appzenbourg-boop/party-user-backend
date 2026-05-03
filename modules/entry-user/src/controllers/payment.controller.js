@@ -432,8 +432,9 @@ export const verifyFoodPayment = async (req, res, next) => {
                 return res.status(404).json({ success: false, message: 'Internal order not found' });
             }
 
-            // Invalidate the user's cached food orders
-            await cacheService.delete(`my_orders_${updatedOrder.userId}`);
+            // Invalidate the user's cached food orders using clearPrefix
+            await cacheService.clearPrefix(`my-orders:${updatedOrder.userId}`);
+            await cacheService.delete(`my_orders_${updatedOrder.userId}`); // Keep old key deletion just in case
             
             // ⚡ Invalidate Waiter cache immediately so it appears on their screen
             if (updatedOrder.hostId) {

@@ -99,20 +99,28 @@ export const getMyFoodOrders = async (req, res, next) => {
             return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
         }
 
-        // Build query for both receiverId (gifts received) and userId (self orders)
-        const query = {
+        // Build queries
+        const foodQuery = {
             $or: [
                 { userId: req.user.id },
                 { receiverId: req.user.id },
                 { senderId: req.user.id }
             ]
         };
-        if (status) query.status = status;
+        if (status) foodQuery.status = status;
+
+        const drinkQuery = {
+            $or: [
+                { receiverId: req.user.id },
+                { senderId: req.user.id }
+            ]
+        };
+        if (status) drinkQuery.status = status;
 
         // ⚡ OPTIMIZED: Fetch both FoodOrders and DrinkRequests up to required limit
         const effectiveLimit = skip + limit;
         const [foodOrders, drinkRequests] = await Promise.all([
-            FoodOrder.find(query)
+            FoodOrder.find(foodQuery)
                 .select('eventId totalAmount createdAt status items type userId receiverId senderId assignedStaffId')
                 .populate({ path: 'eventId', select: 'title' })
                 .populate({ path: 'senderId', select: 'name profileImage' })
@@ -121,12 +129,11 @@ export const getMyFoodOrders = async (req, res, next) => {
                 .sort({ createdAt: -1 })
                 .limit(effectiveLimit)
                 .lean(),
-            DrinkRequest.find(query)
-                .select('eventId totalAmount createdAt status items type userId receiverId senderId assignedStaffId')
-                .populate({ path: 'eventId', select: 'title' })
-                .populate({ path: 'senderId', select: 'name profileImage' })
-                .populate({ path: 'receiverId', select: 'name profileImage' })
-                .populate({ path: 'assignedStaffId', select: 'name profileImage staffType' })
+            DrinkRequest.find(drinkQuery)
+                .select('eventId totalAmount createdAt status items type receiverId senderId')
+                .populate({ path: 'eventId', select: 'title', strictPopulate: false })
+                .populate({ path: 'senderId', select: 'name profileImage', strictPopulate: false })
+                .populate({ path: 'receiverId', select: 'name profileImage', strictPopulate: false })
                 .sort({ createdAt: -1 })
                 .limit(effectiveLimit)
                 .lean()
@@ -144,7 +151,7 @@ export const getMyFoodOrders = async (req, res, next) => {
             .slice(skip, skip + limit);
 
         // Approximate total
-        const total = await FoodOrder.countDocuments(query) + await DrinkRequest.countDocuments(query);
+        const total = await FoodOrder.countDocuments(foodQuery) + await DrinkRequest.countDocuments(drinkQuery);
 
         const result = {
             orders: allOrders,
@@ -159,7 +166,10 @@ export const getMyFoodOrders = async (req, res, next) => {
         await cacheService.set(cacheKey, result, 30); // 30 sec cache
         res.set('Cache-Control', 'private, max-age=30');
         res.status(200).json({ success: true, data: result });
-    } catch (err) { next(err); }
+    } catch (err) { 
+        console.error("GET_ORDERS_ERR:", err);
+        res.status(500).json({ success: false, message: err.message, stack: err.stack });
+    }
 };
 
 

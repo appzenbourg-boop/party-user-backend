@@ -133,6 +133,11 @@ export const processPayment = async (req, res) => {
         request.status = 'completed_payment';
         await request.save();
 
+        // Invalidate caches
+        const { cacheService } = await import('../services/cache.service.js');
+        await cacheService.clearPrefix(`my-orders:${request.senderId}`);
+        await cacheService.clearPrefix(`my-orders:${request.receiverId}`);
+
         // Emit to waiters and admins
         const { getIO } = await import('../socket.js');
         try {
