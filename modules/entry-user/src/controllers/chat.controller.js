@@ -141,3 +141,30 @@ export const getChatPeers = async (req, res) => {
         res.status(500).json({ success: false, message: 'Server Error' });
     }
 };
+
+/**
+ * DELETE /api/v1/chat/:peerId
+ * Deletes all messages between the current user and the given peer.
+ */
+export const deleteConversation = async (req, res) => {
+    try {
+        const currentUserId = req.user.id;
+        const peerId = req.params.peerId;
+
+        if (!peerId || !mongoose.Types.ObjectId.isValid(peerId)) {
+            return res.status(400).json({ success: false, message: 'Invalid peer ID' });
+        }
+
+        await Message.deleteMany({
+            $or: [
+                { sender: currentUserId, receiver: peerId },
+                { sender: peerId, receiver: currentUserId }
+            ]
+        });
+
+        res.status(200).json({ success: true, message: 'Conversation deleted' });
+    } catch (error) {
+        console.error('deleteConversation Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
