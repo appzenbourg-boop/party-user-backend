@@ -21,5 +21,9 @@ const drinkRequestSchema = new mongoose.Schema({
 // Indexing for quick retrieval by user
 drinkRequestSchema.index({ receiverId: 1, status: 1 });
 drinkRequestSchema.index({ senderId: 1, status: 1 });
+drinkRequestSchema.index({ eventId: 1, createdAt: -1 });
+
+// ⚡ TTL index: auto-delete expired/completed requests after 24 hours
+drinkRequestSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 86400, partialFilterExpression: { status: { $in: ['expired', 'rejected', 'completed_payment'] } } });
 
 export const DrinkRequest = mongoose.model('DrinkRequest', drinkRequestSchema);

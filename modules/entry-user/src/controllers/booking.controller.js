@@ -167,8 +167,7 @@ export const getMyFoodOrders = async (req, res, next) => {
         res.set('Cache-Control', 'private, max-age=30');
         res.status(200).json({ success: true, data: result });
     } catch (err) { 
-        console.error("GET_ORDERS_ERR:", err);
-        res.status(500).json({ success: false, message: err.message, stack: err.stack });
+        next(err);
     }
 };
 

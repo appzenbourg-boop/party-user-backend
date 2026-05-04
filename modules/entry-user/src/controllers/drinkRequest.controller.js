@@ -110,6 +110,24 @@ export const processPayment = async (req, res) => {
         const eventDoc = await Event.findById(request.eventId).select('hostId').lean();
         if (!eventDoc) return res.status(404).json({ success: false, message: 'Event not found' });
         
+        // Find receiver's booking to know where to deliver the gift
+        const { Booking } = await import('../models/booking.model.js');
+        const receiverBooking = await Booking.findOne({ 
+            userId: request.receiverId, 
+            eventId: request.eventId,
+            status: { $in: ['checked_in', 'active', 'approved'] }
+        }).select('tableId zone seatIds').sort({ createdAt: -1 }).lean();
+        
+        let finalZone = 'General';
+        let finalTableId = 'Floor';
+        
+        if (receiverBooking) {
+            finalZone = receiverBooking.zone || 'General';
+            finalTableId = receiverBooking.tableId || (receiverBooking.seatIds && receiverBooking.seatIds.length > 0 ? receiverBooking.seatIds[0] : 'Floor');
+            
+            // If tableId is a raw ObjectId, attempt to resolve its name (Optional, but waiter frontend handles ObjectIds now by showing #HEX)
+        }
+        
         const newOrder = await FoodOrder.create({
             userId: request.senderId,      
             eventId: request.eventId,
@@ -117,6 +135,8 @@ export const processPayment = async (req, res) => {
             type: 'gift',
             senderId: request.senderId,
             receiverId: request.receiverId,
+            zone: finalZone,
+            tableId: finalTableId,
             items: request.items.map(i => ({ 
                 menuItemId: i.menuItemId,
                 name: i.name, 

@@ -10,7 +10,12 @@ export const initSocket = (server) => {
         cors: {
             origin: '*',
             methods: ['GET', 'POST']
-        }
+        },
+        // ⚡ Scale: prevent ghost connections and message bombs
+        pingTimeout: 20000,        // 20s: disconnect unresponsive clients
+        pingInterval: 25000,       // 25s: heartbeat check
+        maxHttpBufferSize: 1e6,    // 1MB max message size (prevent DoS)
+        transports: ['websocket', 'polling'] // Prefer WebSocket for lower overhead
     });
 
     // Authentication middleware

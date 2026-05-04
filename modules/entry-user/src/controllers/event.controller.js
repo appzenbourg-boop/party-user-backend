@@ -480,8 +480,6 @@ export const getFloorPlan = async (req, res, next) => {
             }
         });
 
-        console.log('[FloorPlan] Booked seats:', bookedSeatIds.size, 'for event:', id);
-
         // 3. Resolve primary zone source
         let rawZones = [];
         if (dedicatedFloors && dedicatedFloors.length > 0) {
@@ -625,8 +623,6 @@ export const getBookedTables = async (req, res, next) => {
 export const getMenuItems = async (req, res, next) => {
     try {
         const { eventId } = req.params;
-        console.log(`\n📡 [getMenuItems] Called for eventId: ${eventId} by user: ${req.user.id}`);
-
         const cacheKey = cacheService.formatKey('event_menu', eventId);
 
         const event = await Event.findById(eventId).select('hostId venueId date title status').lean();
@@ -635,11 +631,8 @@ export const getMenuItems = async (req, res, next) => {
             return res.status(200).json({ success: true, data: [], message: 'Event not found' });
         }
 
-        console.log(`📅 [getMenuItems] Event: "${event.title}" | Status: ${event.status} | Date: ${event.date}`);
-
         // ── GATE 1: Block immediately if event is EXPIRED ─────────────────────
         if (event.status === 'EXPIRED' || event.status === 'CANCELLED' || event.status === 'ENDED') {
-            console.log(`🚫 [getMenuItems] Event status is "${event.status}" — menu BLOCKED`);
             return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
         }
 
@@ -649,7 +642,6 @@ export const getMenuItems = async (req, res, next) => {
         const eventEndOfDay = new Date(eventDate);
         eventEndOfDay.setHours(23, 59, 59, 999);
         if (now > eventEndOfDay) {
-            console.log(`🚫 [getMenuItems] Event date ${event.date} is in the past — menu BLOCKED`);
             return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
         }
 
@@ -661,16 +653,12 @@ export const getMenuItems = async (req, res, next) => {
         }).select('_id').lean();
 
         if (!activeBooking) {
-            console.log(`🚫 [getMenuItems] No active booking for user ${req.user.id} on event ${eventId} — menu BLOCKED`);
             return res.status(200).json({ success: true, data: [], message: 'You need to book this event to access the menu.' });
         }
-
-        console.log(`✅ [getMenuItems] All gates passed. Booking: ${activeBooking._id} — fetching menu`);
 
         // Check cache only after all gates pass
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            console.log(`✅ [getMenuItems] Menu response (CACHED): ${cached.length} items`);
             return res.status(200).json({ success: true, data: cached });
         }
 
@@ -681,8 +669,6 @@ export const getMenuItems = async (req, res, next) => {
         const dbItems = await MenuItem.find({ $or: orConditions, inStock: true })
             .select('name price category image desc inStock')
             .lean();
-
-        console.log(`✅ [getMenuItems] Menu response: ${dbItems.length} items`);
 
         const items = dbItems.map(item => ({ ...item, type: item.category, description: item.desc || '' }));
         await cacheService.set(cacheKey, items, 600);

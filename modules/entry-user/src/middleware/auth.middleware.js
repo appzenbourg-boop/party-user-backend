@@ -56,17 +56,21 @@ export const protect = async (req, res, next) => {
         let tokenVersion = decoded.tokenVersion || 0;
 
         if (!cached) {
-            const projection = 'role isActive';
-            
-            // 🔥 Parallel DB Queries (Saves ~1000ms latency)
-            const [admin, host, staff, regularUser] = await Promise.all([
-                Admin.findById(decoded.userId).select(projection).lean(),
-                Host.findById(decoded.userId).select(projection).lean(),
-                Staff.findById(decoded.userId).select(projection).lean(),
-                User.findById(decoded.userId).select(projection).lean()
-            ]);
-            
-            const user = admin || host || staff || regularUser;
+            const projection = 'role isActive tokenVersion';
+            const normalizedRole = (decoded.role || '').toLowerCase();
+
+            // ⚡ OPTIMIZED: Query ONLY the correct collection based on JWT role
+            // This saves ~75% DB overhead compared to 4 parallel queries
+            let user = null;
+            if (['admin', 'superadmin'].includes(normalizedRole)) {
+                user = await Admin.findById(decoded.userId).select(projection).lean();
+            } else if (normalizedRole === 'host') {
+                user = await Host.findById(decoded.userId).select(projection).lean();
+            } else if (['staff', 'waiter', 'security'].includes(normalizedRole)) {
+                user = await Staff.findById(decoded.userId).select(projection).lean();
+            } else {
+                user = await User.findById(decoded.userId).select(projection).lean();
+            }
             
             if (user) {
                 userRole = user.role;

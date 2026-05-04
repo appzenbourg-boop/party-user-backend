@@ -153,8 +153,8 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 app.use(cookieParser());
 app.use(passport.initialize());
 // app.use(NODE_ENV === 'production' ? morgan('tiny') : morgan('dev'));
@@ -196,7 +196,13 @@ app.use(errorHandler);
 const startServer = async () => {
     try {
         if (!MONGO_URI) { logger.error('MONGO_URI missing'); process.exit(1); }
-        await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 5000, socketTimeoutMS: 45000, maxPoolSize: 50 });
+        await mongoose.connect(MONGO_URI, { 
+            serverSelectionTimeoutMS: 5000, 
+            socketTimeoutMS: 45000, 
+            maxPoolSize: 150,    // Scale: supports ~10k concurrent users
+            minPoolSize: 10,     // Keep warm connections ready
+            maxIdleTimeMS: 30000 // Close idle connections after 30s
+        });
         logger.info('✔ MongoDB connected (user-api)');
 
         const { initSocket } = await import('./modules/entry-user/src/socket.js');

@@ -19,21 +19,29 @@ const applyPrivacyOffset = (lat, lng) => {
     return { lat: lat + offsetLat, lng: lng + offsetLng };
 };
 
-// 1. Map / Presence - OPTIMIZED
+// 1. Map / Presence - OPTIMIZED with caching
 export const getNearbyUsers = async (req, res) => {
     try {
         const { eventId } = req.params;
         const myUserId = req.user.id;
 
-        console.log('👥 [getNearbyUsers] Request:', { eventId, myUserId });
+        // ⚡ Cache nearby users per event for 15 seconds to prevent DB hammering
+        // Each user still sees fresh data within 15s (acceptable for live presence)
+        const cacheKey = cacheService.formatKey('nearby', eventId);
+        const cached = await cacheService.get(cacheKey);
 
-        // Find users with visibility = true inside this event, excluding myself
-        // Increased time window to 60 minutes for better visibility
+        if (cached) {
+            // Filter out the current user from cached result before sending
+            const filtered = (Array.isArray(cached) ? cached : []).filter(
+                u => String(u.id) !== String(myUserId) && String(u._id) !== String(myUserId)
+            );
+            return res.json({ success: true, data: filtered });
+        }
+
         const sixtyMinsAgo = new Date(Date.now() - 60 * 60000);
         
         const presences = await EventPresence.find({
             eventId,
-            userId: { $ne: myUserId },
             visibility: true,
             lastSeen: { $gte: sixtyMinsAgo }
         })
@@ -41,11 +49,9 @@ export const getNearbyUsers = async (req, res) => {
         .lean()
         .exec();
 
-        console.log('✅ [getNearbyUsers] Found:', presences.length, 'visible users');
-
-        // Apply privacy offset mapping
-        const processed = presences
-            .filter(p => p.userId) // Ensure userId is populated
+        // Apply privacy offset mapping and build result
+        const all = presences
+            .filter(p => p.userId)
             .map(p => {
                 const { lat, lng } = applyPrivacyOffset(p.lat || 0, p.lng || 0);
                 return {
@@ -63,9 +69,15 @@ export const getNearbyUsers = async (req, res) => {
                 };
             });
 
+        // Cache the full event result (all users), then filter for this user
+        await cacheService.set(cacheKey, all, 15);
+
+        const processed = all.filter(
+            u => String(u.id) !== String(myUserId) && String(u._id) !== String(myUserId)
+        );
+
         res.json({ success: true, data: processed });
     } catch (error) {
-        console.error('❌ [getNearbyUsers] Error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -226,7 +238,7 @@ export const getVenueGifts = async (req, res) => {
         const { eventId } = req.params;
         const cacheKey = cacheService.formatKey('gifts', eventId);
 
-        const gifts = await cacheService.wrap(cacheKey, 10, async () => {
+        const gifts = await cacheService.wrap(cacheKey, 120, async () => { // ⚡ 120s cache for gift catalog
             const event = await Event.findById(eventId).select('hostId').lean();
             let dbGifts = [];
             

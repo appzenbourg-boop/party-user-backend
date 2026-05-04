@@ -15,4 +15,7 @@ eventPresenceSchema.index({ userId: 1, eventId: 1 }, { unique: true });
 // Optimized index for finding nearby users on Discovery
 eventPresenceSchema.index({ eventId: 1, visibility: 1, lastSeen: -1 });
 
+// ⚡ TTL index: auto-delete stale presence records after 2 hours of inactivity
+eventPresenceSchema.index({ lastSeen: 1 }, { expireAfterSeconds: 7200 });
+
 export const EventPresence = mongoose.model('EventPresence', eventPresenceSchema);

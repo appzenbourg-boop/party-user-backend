@@ -82,8 +82,9 @@ router.put('/reviews', updateReview);
 
 // --- SUPPORT & SAFETY ---
 router.post('/rate', submitAppRating);
-router.post('/report-incident', submitIncidentReport);
-router.post('/report-bug', submitBugReport);
+// ⚡ These two routes accept base64 images — override to 10mb limit only here
+router.post('/report-incident', express.json({ limit: '10mb' }), submitIncidentReport);
+router.post('/report-bug', express.json({ limit: '10mb' }), submitBugReport);
 router.post('/support-ticket', submitSupportRequest);
 router.post('/events/:eventId/report', reportEvent);
 
