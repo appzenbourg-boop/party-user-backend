@@ -227,58 +227,60 @@ export const verifyOtp = async (req, res, next) => {
         } 
         
         // ── 2. TRADITIONAL OTP VERIFICATION (EXISTING) ────────────────────────
-        if (!verified && !isEmail) {
-            // ── PHONE PATH ────────────────────────────────────────────────────
-            const rawPhone = identifier.replace(/\s/g, '');
-            const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+        if (!verified) {
+            if (!isEmail) {
+                // ── PHONE PATH ────────────────────────────────────────────────────
+                const rawPhone = identifier.replace(/\s/g, '');
+                const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
-            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
-            
-            if (useTwilioBypass) {
-                // 🔧 BYPASS MODE: Check against local DB OTP
-                const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
+                // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
+                const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
+                
+                if (useTwilioBypass) {
+                    // 🔧 BYPASS MODE: Check against local DB OTP
+                    const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
+                    if (currentOtp) {
+                        verified = true;
+                        Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                    } else {
+                        return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
+                    }
+                } else {
+                    // 🔒 PRODUCTION: Verify via Twilio with fallback
+                    try {
+                        verified = await verifySmsOtp(e164Phone, otp);
+                        if (!verified) {
+                            // Try DB fallback if Twilio says invalid
+                            const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
+                            if (dbOtp) {
+                                verified = true;
+                                Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                            } else {
+                                return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
+                            }
+                        }
+                    } catch (twilioErr) {
+                        false && console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
+                        // Fallback to DB OTP check
+                        const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
+                        if (dbOtp) {
+                            verified = true;
+                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                        } else {
+                            return res.status(500).json({ success: false, message: 'OTP verification service error. Please try again.' });
+                        }
+                    }
+                }
+            } else {
+                // ── EMAIL PATH: local OTP model check ───────────────────────────
+                const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
+
                 if (currentOtp) {
                     verified = true;
                     Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                 } else {
                     return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
                 }
-            } else {
-                // 🔒 PRODUCTION: Verify via Twilio with fallback
-                try {
-                    verified = await verifySmsOtp(e164Phone, otp);
-                    if (!verified) {
-                        // Try DB fallback if Twilio says invalid
-                        const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
-                        if (dbOtp) {
-                            verified = true;
-                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                        } else {
-                            return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
-                        }
-                    }
-                } catch (twilioErr) {
-                    false && console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
-                    // Fallback to DB OTP check
-                    const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
-                    if (dbOtp) {
-                        verified = true;
-                        Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                    } else {
-                        return res.status(500).json({ success: false, message: 'OTP verification service error. Please try again.' });
-                    }
-                }
-            }
-        } else {
-            // ── EMAIL PATH: local OTP model check ───────────────────────────
-            const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
-
-            if (currentOtp) {
-                verified = true;
-                Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-            } else {
-                return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
             }
         }
 
