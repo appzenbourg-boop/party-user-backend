@@ -150,6 +150,17 @@ export const sendOtp = async (req, res, next) => {
             // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
             const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
+            // ── FIREBASE OTP ──
+            // If the client is handling OTP via Firebase, it might still call this endpoint.
+            // We can just return success so the client proceeds, or bypass if requested.
+            if (req.body.useFirebase) {
+                return res.status(200).json({
+                    success: true,
+                    message: 'Please verify OTP via Firebase',
+                    data: { type: 'firebase' }
+                });
+            }
+
             if (useTwilioBypass) {
                 // 🔧 BYPASS MODE: Use local DB OTP (for testing/development)
                 const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -217,7 +228,22 @@ export const verifyOtp = async (req, res, next) => {
             // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
             const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
-            if (useTwilioBypass) {
+            if (idToken) {
+                // ── FIREBASE OTP ──
+                try {
+                    const decodedToken = await admin.auth().verifyIdToken(idToken);
+                    // Check if the verified phone number matches the identifier
+                    if (decodedToken.phone_number === e164Phone) {
+                        verified = true;
+                    } else {
+                        false && console.error(`[AUTH] Firebase token phone mismatch: ${decodedToken.phone_number} vs ${e164Phone}`);
+                        return res.status(401).json({ success: false, message: 'Phone number mismatch with Firebase token', data: {} });
+                    }
+                } catch (error) {
+                    console.error('[AUTH] Firebase verifyIdToken error:', error.message);
+                    return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token', data: {} });
+                }
+            } else if (useTwilioBypass) {
                 // 🔧 BYPASS MODE: Check against local DB OTP
                 const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
                 if (currentOtp) {

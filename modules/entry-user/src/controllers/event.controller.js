@@ -26,28 +26,27 @@ export const getAllEvents = async (req, res, next) => {
         const events = await cacheService.wrap(cacheKey, 300, async () => { // 5min cache
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-            false && console.log('🔍 [getAllEvents] Fetching events with filters:', {
-                status: 'LIVE',
-                date: { $gte: startOfToday },
-                startOfToday: startOfToday.toISOString()
-            });
+            // ⚡ FIX: Go back 1 day to handle IST/UTC timezone drift.
+            // Events created at midnight IST (UTC+5:30) are stored as the previous
+            // UTC day in MongoDB, so a strict $gte: startOfToday filter silently
+            // drops all of today's Indian events.
+            const filterFrom = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
 
             // First check total events in DB
             const totalEventsInDB = await Event.countDocuments({});
             const liveEvents = await Event.countDocuments({ status: 'LIVE' });
-            const futureEvents = await Event.countDocuments({ date: { $gte: startOfToday } });
             
-            false && console.log('📊 [getAllEvents] Database stats:', {
+            console.log('📊 [getAllEvents] Database stats:', {
                 totalEvents: totalEventsInDB,
                 liveEvents: liveEvents,
-                futureEvents: futureEvents
+                filterFrom: filterFrom.toISOString(),
+                liveFutureEvents: await Event.countDocuments({ status: 'LIVE', date: { $gte: filterFrom } })
             });
 
             // ⚡ ULTRA OPTIMIZED: Minimal fields + lean() + limit
             const results = await Event.find({ 
                 status: 'LIVE', 
-                date: { $gte: startOfToday } 
+                date: { $gte: filterFrom } 
             })
             .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel tickets floors price') // Added tickets, floors and price
             .populate({
@@ -130,10 +129,11 @@ export const getAllEvents = async (req, res, next) => {
             });
         });
 
-        // Get total count for pagination
+        // Get total count for pagination (same 1-day backward window)
+        const _filterFrom = new Date(new Date().setHours(0,0,0,0) - 24 * 60 * 60 * 1000);
         const total = await Event.countDocuments({ 
             status: 'LIVE', 
-            date: { $gte: new Date().setHours(0,0,0,0) } 
+            date: { $gte: _filterFrom } 
         });
 
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
