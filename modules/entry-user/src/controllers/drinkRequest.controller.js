@@ -16,9 +16,10 @@ export const sendDrinkRequest = async (req, res) => {
             createdAt: { $gte: oneHourAgo }
         });
 
-        if (recentRequests >= 5) {
-            return res.status(429).json({ success: false, message: 'Rate limit exceeded. Max 5 requests per hour.' });
-        }
+        // --- TESTING OVERRIDE: Disabled 5 requests/hour limit ---
+        // if (recentRequests >= 5) {
+        //     return res.status(429).json({ success: false, message: 'Rate limit exceeded. Max 5 requests per hour.' });
+        // }
 
         const newRequest = await DrinkRequest.create({
             senderId,

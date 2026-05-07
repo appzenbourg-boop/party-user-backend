@@ -200,7 +200,7 @@ export const submitBugReport = async (req, res, next) => {
         console.log('⏳ [Nodemailer] Dispatching Bug Report over network...');
         transporter.sendMail({
             from: `"STITCH Triage" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
-            to: 'devanshjais20@gmail.com',
+            to: 'info.zenbourg@gmail.com',
             subject: `🐞 BUG: ${description.substring(0, 40)}`,
             html
         })
@@ -234,7 +234,7 @@ export const submitSupportRequest = async (req, res, next) => {
         console.log('⏳ [Nodemailer] Dispatching Support Ticket over network...');
         transporter.sendMail({
             from: `"STITCH Support" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
-            to: 'devanshjais20@gmail.com',
+            to: 'info.zenbourg@gmail.com',
             subject: `🎫 Support Ticket: ${name}`,
             html: html
         })

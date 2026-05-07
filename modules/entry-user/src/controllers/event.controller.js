@@ -32,16 +32,59 @@ export const getAllEvents = async (req, res, next) => {
             // drops all of today's Indian events.
             const filterFrom = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
 
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('📡 [USER EVENTS DEBUG] Fetching events for user discovery');
+            console.log('Current Time:', now.toISOString());
+            console.log('Filter From Date:', filterFrom.toISOString());
+            console.log('═══════════════════════════════════════════════════════════');
+
             // First check total events in DB
             const totalEventsInDB = await Event.countDocuments({});
             const liveEvents = await Event.countDocuments({ status: 'LIVE' });
+            const liveFutureEvents = await Event.countDocuments({ status: 'LIVE', date: { $gte: filterFrom } });
             
-            console.log('📊 [getAllEvents] Database stats:', {
-                totalEvents: totalEventsInDB,
-                liveEvents: liveEvents,
-                filterFrom: filterFrom.toISOString(),
-                liveFutureEvents: await Event.countDocuments({ status: 'LIVE', date: { $gte: filterFrom } })
+            console.log('📊 [USER EVENTS DEBUG] Database Overview:');
+            console.log(`  Total Events in DB: ${totalEventsInDB}`);
+            console.log(`  LIVE Events: ${liveEvents}`);
+            console.log(`  LIVE + Future Events (shown to users): ${liveFutureEvents}`);
+            console.log('');
+
+            // Get ALL events to see what's being filtered
+            const allEvents = await Event.find({})
+                .select('title date status hostId')
+                .sort({ date: -1 })
+                .lean();
+            
+            console.log('📋 [USER EVENTS DEBUG] All Events in Database:');
+            console.log('─────────────────────────────────────────────────────────────');
+            allEvents.forEach((event, index) => {
+                const eventDate = new Date(event.date);
+                const isPast = eventDate < filterFrom;
+                const isLive = event.status === 'LIVE';
+                const willShow = isLive && !isPast;
+                
+                console.log(`Event ${index + 1}:`);
+                console.log(`  ID: ${event._id}`);
+                console.log(`  Title: ${event.title}`);
+                console.log(`  Status: ${event.status}`);
+                console.log(`  Date: ${event.date}`);
+                console.log(`  Host ID: ${event.hostId}`);
+                console.log(`  Is Past: ${isPast ? 'YES ❌' : 'NO ✅'}`);
+                console.log(`  Is LIVE: ${isLive ? 'YES ✅' : 'NO ❌'}`);
+                console.log(`  Will Show to Users: ${willShow ? 'YES ✅' : 'NO ❌'}`);
+                console.log('─────────────────────────────────────────────────────────────');
             });
+            
+            console.log('');
+            console.log('📈 [USER EVENTS DEBUG] Status Breakdown:');
+            const statusCounts = allEvents.reduce((acc, e) => {
+                acc[e.status] = (acc[e.status] || 0) + 1;
+                return acc;
+            }, {});
+            Object.entries(statusCounts).forEach(([status, count]) => {
+                console.log(`  ${status}: ${count}`);
+            });
+            console.log('═══════════════════════════════════════════════════════════');
 
             // ⚡ ULTRA OPTIMIZED: Minimal fields + lean() + limit
             const results = await Event.find({ 
