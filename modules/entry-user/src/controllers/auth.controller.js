@@ -208,8 +208,26 @@ export const verifyOtp = async (req, res, next) => {
         const { identifier, otp, idToken } = value;
         const isEmail = identifier.includes('@');
         let verified = false;
+        let verifiedPhoneNumber = null;
 
-        if (!isEmail) {
+        // ── 1. FIREBASE ID TOKEN VERIFICATION (NEW) ───────────────────────────
+        if (idToken) {
+            try {
+                const decodedToken = await admin.auth().verifyIdToken(idToken);
+                verifiedPhoneNumber = decodedToken.phone_number;
+                
+                if (verifiedPhoneNumber) {
+                    verified = true;
+                    false && console.log(`[AUTH] Firebase Token verified for ${verifiedPhoneNumber}`);
+                }
+            } catch (firebaseErr) {
+                console.error('[AUTH] Firebase verifyIdToken failed:', firebaseErr.message);
+                return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token', data: {} });
+            }
+        } 
+        
+        // ── 2. TRADITIONAL OTP VERIFICATION (EXISTING) ────────────────────────
+        if (!verified && !isEmail) {
             // ── PHONE PATH ────────────────────────────────────────────────────
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
@@ -301,7 +319,11 @@ export const verifyOtp = async (req, res, next) => {
         // ⚡ HIGH-PERFORMANCE PARALLEL LOOKUP - HOST PRIORITY
         if (!user) {
             const isEmail = identifier.includes('@');
-            const searchPhoneRaw = !isEmail ? identifier.replace(/\s/g, '') : null;
+            // If we verified via Firebase, we use the phone number from the token as the source of truth
+            const searchIdentifier = (idToken && verifiedPhoneNumber) ? verifiedPhoneNumber : identifier;
+            const identifierLower = searchIdentifier.toLowerCase();
+            
+            const searchPhoneRaw = !isEmail ? searchIdentifier.replace(/\s/g, '') : null;
             const phoneBase = searchPhoneRaw ? searchPhoneRaw.slice(-10) : null;
             
             const query = isEmail 
@@ -339,7 +361,7 @@ export const verifyOtp = async (req, res, next) => {
                 referralCode
             };
             if (isEmail) userPayload.email = identifierLower;
-            if (!isEmail) userPayload.phone = identifier;
+            if (!isEmail) userPayload.phone = (idToken && verifiedPhoneNumber) ? verifiedPhoneNumber : identifier;
 
             user = new User(userPayload);
             await user.save();
