@@ -219,74 +219,78 @@ export const verifyOtp = async (req, res, next) => {
         const { identifier, otp, idToken } = value;
         const isEmail = identifier.includes('@');
         let verified = false;
+        let verifiedPhoneNumber = null;
 
-        if (!isEmail) {
-            // ── PHONE PATH ────────────────────────────────────────────────────
-            const rawPhone = identifier.replace(/\s/g, '');
-            const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
-
-            // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
-            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
-            
-            if (idToken) {
-                // ── FIREBASE OTP ──
-                try {
-                    const decodedToken = await admin.auth().verifyIdToken(idToken);
-                    // Check if the verified phone number matches the identifier
-                    if (decodedToken.phone_number === e164Phone) {
-                        verified = true;
-                    } else {
-                        false && console.error(`[AUTH] Firebase token phone mismatch: ${decodedToken.phone_number} vs ${e164Phone}`);
-                        return res.status(401).json({ success: false, message: 'Phone number mismatch with Firebase token', data: {} });
-                    }
-                } catch (error) {
-                    console.error('[AUTH] Firebase verifyIdToken error:', error.message);
-                    return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token', data: {} });
+        // ── 1. FIREBASE ID TOKEN VERIFICATION (NEW) ───────────────────────────
+        if (idToken) {
+            try {
+                const decodedToken = await admin.auth().verifyIdToken(idToken);
+                verifiedPhoneNumber = decodedToken.phone_number;
+                
+                if (verifiedPhoneNumber) {
+                    verified = true;
+                    false && console.log(`[AUTH] Firebase Token verified for ${verifiedPhoneNumber}`);
                 }
-            } else if (useTwilioBypass) {
-                // 🔧 BYPASS MODE: Check against local DB OTP
-                const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
+            } catch (firebaseErr) {
+                console.error('[AUTH] Firebase verifyIdToken failed:', firebaseErr.message);
+                return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token', data: {} });
+            }
+        } 
+        
+        // ── 2. TRADITIONAL OTP VERIFICATION (EXISTING) ────────────────────────
+        if (!verified) {
+            if (!isEmail) {
+                // ── PHONE PATH ────────────────────────────────────────────────────
+                const rawPhone = identifier.replace(/\s/g, '');
+                const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+
+                // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
+                const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
+                
+                if (useTwilioBypass) {
+                    // 🔧 BYPASS MODE: Check against local DB OTP
+                    const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
+                    if (currentOtp) {
+                        verified = true;
+                        Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                    } else {
+                        return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
+                    }
+                } else {
+                    // 🔒 PRODUCTION: Verify via Twilio with fallback
+                    try {
+                        verified = await verifySmsOtp(e164Phone, otp);
+                        if (!verified) {
+                            // Try DB fallback if Twilio says invalid
+                            const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
+                            if (dbOtp) {
+                                verified = true;
+                                Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                            } else {
+                                return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
+                            }
+                        }
+                    } catch (twilioErr) {
+                        false && console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
+                        // Fallback to DB OTP check
+                        const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
+                        if (dbOtp) {
+                            verified = true;
+                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                        } else {
+                            return res.status(500).json({ success: false, message: 'OTP verification service error. Please try again.' });
+                        }
+                    }
+                }
+            } else {
+                // ── EMAIL PATH: local OTP model check ───────────────────────────
+                const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
                 if (currentOtp) {
                     verified = true;
                     Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
                 } else {
                     return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
                 }
-            } else {
-                // 🔒 PRODUCTION: Verify via Twilio with fallback
-                try {
-                    verified = await verifySmsOtp(e164Phone, otp);
-                    if (!verified) {
-                        // Try DB fallback if Twilio says invalid
-                        const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
-                        if (dbOtp) {
-                            verified = true;
-                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                        } else {
-                            return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
-                        }
-                    }
-                } catch (twilioErr) {
-                    false && console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
-                    // Fallback to DB OTP check
-                    const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
-                    if (dbOtp) {
-                        verified = true;
-                        Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                    } else {
-                        return res.status(500).json({ success: false, message: 'OTP verification service error. Please try again.' });
-                    }
-                }
-            }
-        } else {
-            // ── EMAIL PATH: local OTP model check ───────────────────────────
-            const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
-
-            if (currentOtp) {
-                verified = true;
-                Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-            } else {
-                return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
             }
         }
 
@@ -327,7 +331,11 @@ export const verifyOtp = async (req, res, next) => {
         // ⚡ HIGH-PERFORMANCE PARALLEL LOOKUP - HOST PRIORITY
         if (!user) {
             const isEmail = identifier.includes('@');
-            const searchPhoneRaw = !isEmail ? identifier.replace(/\s/g, '') : null;
+            // If we verified via Firebase, we use the phone number from the token as the source of truth
+            const searchIdentifier = (idToken && verifiedPhoneNumber) ? verifiedPhoneNumber : identifier;
+            const identifierLower = searchIdentifier.toLowerCase();
+            
+            const searchPhoneRaw = !isEmail ? searchIdentifier.replace(/\s/g, '') : null;
             const phoneBase = searchPhoneRaw ? searchPhoneRaw.slice(-10) : null;
             
             const query = isEmail 
@@ -365,7 +373,7 @@ export const verifyOtp = async (req, res, next) => {
                 referralCode
             };
             if (isEmail) userPayload.email = identifierLower;
-            if (!isEmail) userPayload.phone = identifier;
+            if (!isEmail) userPayload.phone = (idToken && verifiedPhoneNumber) ? verifiedPhoneNumber : identifier;
 
             user = new User(userPayload);
             await user.save();
