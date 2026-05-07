@@ -21,7 +21,8 @@ if (!admin.apps.length) {
             });
             console.log('Firebase Admin SDK: Initialized successfully ✅');
         } catch (error) {
-            console.error('Firebase Admin SDK initialization error:', error.message);
+            console.error('Firebase Admin SDK initialization error ❌:', error.message);
+            console.error('Check if FIREBASE_PRIVATE_KEY in .env is correct and starts with -----BEGIN PRIVATE KEY-----');
         }
     }
 }
