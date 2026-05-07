@@ -113,6 +113,27 @@ export const initSocket = (server) => {
             }
 
             try {
+                // 🛡️ SECURITY: Only allow checked-in users to broadcast their presence
+                // ⚡ SPEED: Use cacheService to avoid hammering the DB on every location ping
+                const { cacheService } = await import('../services/cache.service.js');
+                const cacheKey = \`presence_auth:\${userId}:\${eventId}\`;
+                let isCheckedIn = await cacheService.get(cacheKey);
+
+                if (isCheckedIn === null || isCheckedIn === undefined) {
+                    const { Booking } = await import('../models/booking.model.js');
+                    const booking = await Booking.findOne({ 
+                        userId, 
+                        eventId, 
+                        status: { $in: ['checked_in', 'active'] } 
+                    }).select('_id').lean();
+                    isCheckedIn = !!booking;
+                    await cacheService.set(cacheKey, isCheckedIn, 60); // Cache for 60 seconds
+                }
+                
+                if (!isCheckedIn) {
+                    return; // Silently ignore to save bandwidth/logs in production
+                }
+
                 const updated = await EventPresence.findOneAndUpdate(
                     { userId, eventId },
                     { userId, eventId, lat, lng, visibility, lastSeen: new Date() },

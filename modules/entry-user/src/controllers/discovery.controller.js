@@ -25,6 +25,19 @@ export const getNearbyUsers = async (req, res) => {
         const { eventId } = req.params;
         const myUserId = req.user.id;
 
+        // 🛡️ SECURITY: Only allow checked-in users to see the radar
+        const { Booking } = await import('../models/booking.model.js');
+        const myBooking = await Booking.findOne({ 
+            userId: myUserId, 
+            eventId, 
+            status: { $in: ['checked_in', 'active'] } 
+        }).select('_id').lean();
+
+        if (!myBooking) {
+            // Return empty array if not checked in
+            return res.json({ success: true, data: [] });
+        }
+
         // ⚡ Cache nearby users per event for 15 seconds to prevent DB hammering
         // Each user still sees fresh data within 15s (acceptable for live presence)
         const cacheKey = cacheService.formatKey('nearby', eventId);
