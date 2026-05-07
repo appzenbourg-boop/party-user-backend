@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { EventPresence } from '../models/EventPresence.js';
+import { notificationService } from '../services/notification.service.js';
 
 let io;
 const users = new Map(); // Map userId to set of socketIds
@@ -211,6 +212,15 @@ export const initSocket = (server) => {
                 console.warn('⚠️ [send_message] Receiver not online:', receiverId);
             }
 
+            // Always attempt to send a push notification (FCM handles background/foreground logic)
+            // We use sendToUser directly so it doesn't clutter the in-app notification DB tab
+            notificationService.sendToUser(
+                receiverId, 
+                `New message from ${senderName}`, 
+                content, 
+                { type: 'chat', senderId }
+            ).catch(err => console.error('[Socket Push] Error sending message push:', err));
+
             // Acknowledge back to sender immediately so UI updates optimizing latency
             if (callback) {
                 callback({ success: true, tempId, timestamp });
@@ -295,6 +305,15 @@ export const initSocket = (server) => {
             } else {
                 console.warn('⚠️ [send_gift_request] Receiver not online:', receiverId);
             }
+
+            // Always attempt to send a push notification for gifts
+            const itemName = item?.name || 'a gift';
+            notificationService.sendToUser(
+                receiverId,
+                `🎁 Gift from ${senderName || 'Someone'}`,
+                `You received ${itemName}! Tap to view.`,
+                { type: 'gift', senderId, requestId }
+            ).catch(err => console.error('[Socket Push] Error sending gift push:', err));
         });
 
         // Handle gift request accepted
