@@ -116,7 +116,7 @@ export const initSocket = (server) => {
                 // 🛡️ SECURITY: Only allow checked-in users to broadcast their presence
                 // ⚡ SPEED: Use cacheService to avoid hammering the DB on every location ping
                 const { cacheService } = await import('../services/cache.service.js');
-                const cacheKey = \`presence_auth:\${userId}:\${eventId}\`;
+                const cacheKey = `presence_auth:${userId}:${eventId}`;
                 let isCheckedIn = await cacheService.get(cacheKey);
 
                 if (isCheckedIn === null || isCheckedIn === undefined) {
