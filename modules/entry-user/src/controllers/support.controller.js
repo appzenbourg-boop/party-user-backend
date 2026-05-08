@@ -184,7 +184,7 @@ export const submitBugReport = async (req, res, next) => {
         }
         
         const emailData = {
-            email: process.env.SUPPORT_EMAIL || 'devanshjais20@gmail.com',
+            email: process.env.SUPPORT_EMAIL || 'info.zenbourg@gmail.com',
             subject: `🐞 BUG: ${description.substring(0, 40)}`,
             message: `Bug Report from ${user?.name} (@${user?.username}) on ${metadata?.os} (${metadata?.osVersion}):\n\n${description}`
         };
@@ -209,7 +209,7 @@ export const submitSupportRequest = async (req, res, next) => {
         const user = await User.findById(req.user.id).select('email username').lean();
 
         const emailData = {
-            email: process.env.SUPPORT_EMAIL || 'devanshjais20@gmail.com',
+            email: process.env.SUPPORT_EMAIL || 'info.zenbourg@gmail.com',
             subject: `🎫 Support Ticket: ${name}`,
             message: `New Support Request from ${name} (${user?.email}):\n\n${message}`
         };
