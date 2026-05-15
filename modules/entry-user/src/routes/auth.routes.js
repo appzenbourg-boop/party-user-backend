@@ -7,7 +7,7 @@ import { Admin } from '../models/admin.model.js';
 import { Host } from '../models/Host.js';
 import { Staff } from '../models/Staff.js';
 import mongoose from 'mongoose';
-import { register, login, refresh, logout, forgotPassword, resetPassword, verifyEmail, sendOtp, verifyOtp, completeOnboarding, googleLogin } from '../controllers/auth.controller.js';
+import { register, login, refresh, logout, forgotPassword, resetPassword, verifyEmail, sendOtp, verifyOtp, completeOnboarding, googleLogin, appleLogin } from '../controllers/auth.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 import { validate } from '../middleware/validator.middleware.js';
 import { registerSchema, loginSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, sendOtpSchema, verifyOtpSchema } from '../validators/auth.validator.js';
@@ -211,5 +211,6 @@ router.post('/verifyemail', verifyEmail);
 router.post('/logout', protect, logout);
 router.post('/onboarding', protect, completeOnboarding);
 router.post('/google', googleLogin);
+router.post('/apple', appleLogin);
 
 export default router;
