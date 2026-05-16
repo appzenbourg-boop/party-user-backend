@@ -144,18 +144,23 @@ export const sendOtp = async (req, res, next) => {
 
         } else {
             // ── PHONE PATH: Handled by Firebase client-side ──────────────────
-            // Note: Firebase Phone Auth sends the SMS directly from the mobile app.
-            // This endpoint can still be called to check for user status or logging.
-            
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+            const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
             console.log(`[AUTH] Firebase Phone Auth requested for ${e164Phone}`);
             
+            // 🔥 BACKUP: Save OTP to DB in case Firebase verification fails or client uses manual flow
+            await Otp.findOneAndUpdate(
+                { identifier: e164Phone }, 
+                { otp: otpCode, createdAt: new Date() }, 
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            ).catch(err => console.error('[AUTH] Phone OTP Save Error:', err.message));
+
             return res.status(200).json({ 
                 success: true, 
                 message: 'Please verify OTP via Firebase', 
-                data: { type: 'firebase', provider: 'firebase' } 
+                data: { type: 'firebase', provider: 'firebase', hint: process.env.TWILIO_BYPASS === 'true' ? otpCode : undefined } 
             });
         }
 
@@ -185,30 +190,28 @@ export const verifyOtp = async (req, res, next) => {
                     false && console.log(`[AUTH] Firebase Token verified for ${verifiedPhoneNumber}`);
                 }
             } catch (firebaseErr) {
-                console.error('[AUTH] Firebase verifyIdToken failed:', firebaseErr.message);
-                return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token', data: {} });
+                console.warn('[AUTH] Firebase verifyIdToken failed (falling back):', firebaseErr.message);
+                // ⚡ DON'T return 401 yet! Fall back to manual OTP check below.
             }
         } 
         
-        // ── 2. PHONE VERIFICATION (FIREBASE ONLY) ──────────────────────────
-        if (!verified && !isEmail) {
-            // For phone numbers, we now require the Firebase idToken
-            if (!idToken) {
-                return res.status(400).json({ success: false, message: 'Firebase idToken required for phone verification', data: {} });
-            }
-            // If idToken was provided, it should have been verified in Step 1.
-            // If it wasn't verified (e.g. invalid), we already returned 401 there.
-        }
-        
-        // ── 3. EMAIL OTP VERIFICATION (EXISTING) ───────────────────────────
-        if (!verified && isEmail) {
-            const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
+        // ── 3. MANUAL OTP VERIFICATION (FALLBACK FOR BOTH EMAIL & PHONE) ───────────
+        if (!verified) {
+            const searchIdentifier = identifier.toLowerCase();
+            const rawPhone = !isEmail ? searchIdentifier.replace(/\s/g, '') : null;
+            const e164Phone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`) : null;
+            
+            const currentOtp = await Otp.findOne({ 
+                $or: [
+                    { identifier: searchIdentifier },
+                    { identifier: e164Phone }
+                ],
+                otp 
+            });
 
             if (currentOtp) {
                 verified = true;
                 Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-            } else {
-                return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
             }
         }
 
