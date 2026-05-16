@@ -201,17 +201,25 @@ export const verifyOtp = async (req, res, next) => {
             const rawPhone = !isEmail ? searchIdentifier.replace(/\s/g, '') : null;
             const e164Phone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`) : null;
             
-            const currentOtp = await Otp.findOne({ 
-                $or: [
-                    { identifier: searchIdentifier },
-                    { identifier: e164Phone }
-                ],
-                otp 
-            });
-
-            if (currentOtp) {
+            // ⚡ BYPASS LOGIC (Restored from old version)
+            if (!isEmail && process.env.TWILIO_BYPASS === 'true') {
+                console.log(`[AUTH] Twilio Bypass active for ${e164Phone} ✅`);
                 verified = true;
-                Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+            }
+
+            if (!verified) {
+                const currentOtp = await Otp.findOne({ 
+                    $or: [
+                        { identifier: searchIdentifier },
+                        { identifier: e164Phone }
+                    ],
+                    otp 
+                });
+
+                if (currentOtp) {
+                    verified = true;
+                    Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                }
             }
         }
 
