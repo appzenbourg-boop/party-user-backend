@@ -157,7 +157,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ limit: '2mb', extended: true }));
 app.use(cookieParser());
 app.use(passport.initialize());
-// app.use(NODE_ENV === 'production' ? morgan('tiny') : morgan('dev'));
+app.use(NODE_ENV === 'production' ? morgan('tiny') : morgan('dev'));
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/',       (_, res) => res.json({ status: 'active', service: 'user-api', env: NODE_ENV }));
