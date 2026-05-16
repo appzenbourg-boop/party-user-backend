@@ -154,8 +154,8 @@ export const sendOtp = async (req, res, next) => {
             
             return res.status(200).json({ 
                 success: true, 
-                message: 'Initiate Firebase Phone Auth on client', 
-                data: { type: 'phone', provider: 'firebase' } 
+                message: 'Please verify OTP via Firebase', 
+                data: { type: 'firebase', provider: 'firebase' } 
             });
         }
 
