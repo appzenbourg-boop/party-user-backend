@@ -187,7 +187,7 @@ export const verifyOtp = async (req, res, next) => {
                 
                 if (verifiedPhoneNumber) {
                     verified = true;
-                    false && console.log(`[AUTH] Firebase Token verified for ${verifiedPhoneNumber}`);
+                    console.log(`[AUTH] Firebase Token verified successfully for ${verifiedPhoneNumber} ✅`);
                 }
             } catch (firebaseErr) {
                 console.warn('[AUTH] Firebase verifyIdToken failed (falling back):', firebaseErr.message);
@@ -216,8 +216,11 @@ export const verifyOtp = async (req, res, next) => {
         }
 
         if (!verified) {
+            console.warn(`[AUTH] Verification failed for identifier: ${identifier}. No valid idToken or matching database OTP found. ❌`);
             return res.status(401).json({ success: false, message: 'Verification failed', data: {} });
         }
+
+        console.log(`[AUTH] Verification successful for ${identifier}. Proceeding to login... ✅`);
 
         const identifierLower = identifier.toLowerCase();
         const whitelistEmail = 'entryclubindia@gmail.com';
