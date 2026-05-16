@@ -1,6 +1,7 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { EventPresence } from '../models/EventPresence.js';
+import { notificationService } from '../services/notification.service.js';
 
 let io;
 const users = new Map(); // Map userId to set of socketIds
@@ -112,6 +113,27 @@ export const initSocket = (server) => {
             }
 
             try {
+                // 🛡️ SECURITY: Only allow checked-in users to broadcast their presence
+                // ⚡ SPEED: Use cacheService to avoid hammering the DB on every location ping
+                const { cacheService } = await import('../services/cache.service.js');
+                const cacheKey = `presence_auth:${userId}:${eventId}`;
+                let isCheckedIn = await cacheService.get(cacheKey);
+
+                if (isCheckedIn === null || isCheckedIn === undefined) {
+                    const { Booking } = await import('../models/booking.model.js');
+                    const booking = await Booking.findOne({ 
+                        userId, 
+                        eventId, 
+                        status: { $in: ['checked_in', 'active'] } 
+                    }).select('_id').lean();
+                    isCheckedIn = !!booking;
+                    await cacheService.set(cacheKey, isCheckedIn, 60); // Cache for 60 seconds
+                }
+                
+                if (!isCheckedIn) {
+                    return; // Silently ignore to save bandwidth/logs in production
+                }
+
                 const updated = await EventPresence.findOneAndUpdate(
                     { userId, eventId },
                     { userId, eventId, lat, lng, visibility, lastSeen: new Date() },
@@ -211,6 +233,15 @@ export const initSocket = (server) => {
                 console.warn('⚠️ [send_message] Receiver not online:', receiverId);
             }
 
+            // Always attempt to send a push notification (FCM handles background/foreground logic)
+            // We use sendToUser directly so it doesn't clutter the in-app notification DB tab
+            notificationService.sendToUser(
+                receiverId, 
+                `New message from ${senderName}`, 
+                content, 
+                { type: 'chat', senderId }
+            ).catch(err => console.error('[Socket Push] Error sending message push:', err));
+
             // Acknowledge back to sender immediately so UI updates optimizing latency
             if (callback) {
                 callback({ success: true, tempId, timestamp });
@@ -295,6 +326,15 @@ export const initSocket = (server) => {
             } else {
                 console.warn('⚠️ [send_gift_request] Receiver not online:', receiverId);
             }
+
+            // Always attempt to send a push notification for gifts
+            const itemName = item?.name || 'a gift';
+            notificationService.sendToUser(
+                receiverId,
+                `🎁 Gift from ${senderName || 'Someone'}`,
+                `You received ${itemName}! Tap to view.`,
+                { type: 'gift', senderId, requestId }
+            ).catch(err => console.error('[Socket Push] Error sending gift push:', err));
         });
 
         // Handle gift request accepted
