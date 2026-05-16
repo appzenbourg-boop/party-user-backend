@@ -9,7 +9,6 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { registerSchema, loginSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, sendOtpSchema, verifyOtpSchema } from '../validators/auth.validator.js';
 import sendEmail from '../utils/sendEmail.js';
-import sendEmail from '../utils/sendEmail.js';
 import { cacheService } from '../services/cache.service.js';
 import appleSigninAuth from 'apple-signin-auth';
 
