@@ -721,8 +721,13 @@ export const googleLogin = async (req, res, next) => {
 
         const emailLower = email.toLowerCase();
 
-        // 🔒 SECURITY: Find by googleId ONLY
-        let user = await User.findOne({ googleId });
+        // 🔒 SECURITY: Find by googleId or email
+        let user = await User.findOne({
+            $or: [
+                { googleId },
+                { email: emailLower }
+            ]
+        });
         
         // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
         const [adminExists, hostExists, staffExists] = await Promise.all([
@@ -759,6 +764,17 @@ export const googleLogin = async (req, res, next) => {
                 referralCode,
                 tokenVersion: 1
             });
+        } else {
+            // ✅ Link googleId to existing user if not already set
+            let updates = {};
+            if (!user.googleId) updates.googleId = googleId;
+            if (!user.emailVerified) updates.emailVerified = true;
+            if (!user.isVerified) updates.isVerified = true;
+
+            if (Object.keys(updates).length > 0) {
+                await User.updateOne({ _id: user._id }, { $set: updates });
+                Object.assign(user, updates);
+            }
         } 
 
         if (!user.isActive) {
