@@ -143,15 +143,9 @@ export const sendOtp = async (req, res, next) => {
             }, 0);
 
         } else {
-            // ── PHONE PATH: Handled by Firebase client-side ──────────────────
-            // Note: Firebase Phone Auth sends the SMS directly from the mobile app.
-            // This endpoint can still be called to check for user status or logging.
-            
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            console.log(`[AUTH] Firebase Phone Auth requested for ${e164Phone}`);
-            
             return res.status(200).json({ 
                 success: true, 
                 message: 'Please verify OTP via Firebase', 
@@ -192,12 +186,10 @@ export const verifyOtp = async (req, res, next) => {
         
         // ── 2. PHONE VERIFICATION (FIREBASE ONLY) ──────────────────────────
         if (!verified && !isEmail) {
-            // For phone numbers, we now require the Firebase idToken
             if (!idToken) {
                 return res.status(400).json({ success: false, message: 'Firebase idToken required for phone verification', data: {} });
             }
-            // If idToken was provided, it should have been verified in Step 1.
-            // If it wasn't verified (e.g. invalid), we already returned 401 there.
+            // idToken was verified in Step 1 above. verified = true already.
         }
         
         // ── 3. EMAIL OTP VERIFICATION (EXISTING) ───────────────────────────
@@ -707,8 +699,13 @@ export const googleLogin = async (req, res, next) => {
 
         const emailLower = email.toLowerCase();
 
-        // 🔒 SECURITY: Find by googleId ONLY
-        let user = await User.findOne({ googleId });
+        // 🔒 SECURITY: Find by googleId or email
+        let user = await User.findOne({
+            $or: [
+                { googleId },
+                { email: emailLower }
+            ]
+        });
         
         // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
         const [adminExists, hostExists, staffExists] = await Promise.all([
@@ -745,6 +742,17 @@ export const googleLogin = async (req, res, next) => {
                 referralCode,
                 tokenVersion: 1
             });
+        } else {
+            // ✅ Link googleId to existing user if not already set
+            let updates = {};
+            if (!user.googleId) updates.googleId = googleId;
+            if (!user.emailVerified) updates.emailVerified = true;
+            if (!user.isVerified) updates.isVerified = true;
+
+            if (Object.keys(updates).length > 0) {
+                await User.updateOne({ _id: user._id }, { $set: updates });
+                Object.assign(user, updates);
+            }
         } 
 
         if (!user.isActive) {
