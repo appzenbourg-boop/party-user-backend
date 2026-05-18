@@ -30,7 +30,9 @@ export const startCronJobs = () => {
 
             if (result.modifiedCount > 0) {
                 console.log(`[Cron] Auto-expired ${result.modifiedCount} events.`);
-                await cacheService.delete('events_all_guest_v13_ultra');
+                // ⚡ FIX: Use clearPrefix to bust all paginated event list caches.
+                // Old key 'events_all_guest_v13_ultra' is stale — actual keys are 'events:list:*'
+                await cacheService.clearPrefix('events:list:');
             }
 
         } catch (error) {

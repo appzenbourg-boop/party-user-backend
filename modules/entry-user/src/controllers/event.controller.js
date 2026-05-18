@@ -26,28 +26,70 @@ export const getAllEvents = async (req, res, next) => {
         const events = await cacheService.wrap(cacheKey, 300, async () => { // 5min cache
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            // ⚡ FIX: Go back 1 day to handle IST/UTC timezone drift.
+            // Events created at midnight IST (UTC+5:30) are stored as the previous
+            // UTC day in MongoDB, so a strict $gte: startOfToday filter silently
+            // drops all of today's Indian events.
+            const filterFrom = new Date(startOfToday.getTime() - 24 * 60 * 60 * 1000);
 
-            false && console.log('🔍 [getAllEvents] Fetching events with filters:', {
-                status: 'LIVE',
-                date: { $gte: startOfToday },
-                startOfToday: startOfToday.toISOString()
-            });
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('📡 [USER EVENTS DEBUG] Fetching events for user discovery');
+            console.log('Current Time:', now.toISOString());
+            console.log('Filter From Date:', filterFrom.toISOString());
+            console.log('═══════════════════════════════════════════════════════════');
 
             // First check total events in DB
             const totalEventsInDB = await Event.countDocuments({});
             const liveEvents = await Event.countDocuments({ status: 'LIVE' });
-            const futureEvents = await Event.countDocuments({ date: { $gte: startOfToday } });
+            const liveFutureEvents = await Event.countDocuments({ status: 'LIVE', date: { $gte: filterFrom } });
             
-            false && console.log('📊 [getAllEvents] Database stats:', {
-                totalEvents: totalEventsInDB,
-                liveEvents: liveEvents,
-                futureEvents: futureEvents
+            console.log('📊 [USER EVENTS DEBUG] Database Overview:');
+            console.log(`  Total Events in DB: ${totalEventsInDB}`);
+            console.log(`  LIVE Events: ${liveEvents}`);
+            console.log(`  LIVE + Future Events (shown to users): ${liveFutureEvents}`);
+            console.log('');
+
+            // Get ALL events to see what's being filtered
+            const allEvents = await Event.find({})
+                .select('title date status hostId')
+                .sort({ date: -1 })
+                .lean();
+            
+            console.log('📋 [USER EVENTS DEBUG] All Events in Database:');
+            console.log('─────────────────────────────────────────────────────────────');
+            allEvents.forEach((event, index) => {
+                const eventDate = new Date(event.date);
+                const isPast = eventDate < filterFrom;
+                const isLive = event.status === 'LIVE';
+                const willShow = isLive && !isPast;
+                
+                console.log(`Event ${index + 1}:`);
+                console.log(`  ID: ${event._id}`);
+                console.log(`  Title: ${event.title}`);
+                console.log(`  Status: ${event.status}`);
+                console.log(`  Date: ${event.date}`);
+                console.log(`  Host ID: ${event.hostId}`);
+                console.log(`  Is Past: ${isPast ? 'YES ❌' : 'NO ✅'}`);
+                console.log(`  Is LIVE: ${isLive ? 'YES ✅' : 'NO ❌'}`);
+                console.log(`  Will Show to Users: ${willShow ? 'YES ✅' : 'NO ❌'}`);
+                console.log('─────────────────────────────────────────────────────────────');
             });
+            
+            console.log('');
+            console.log('📈 [USER EVENTS DEBUG] Status Breakdown:');
+            const statusCounts = allEvents.reduce((acc, e) => {
+                acc[e.status] = (acc[e.status] || 0) + 1;
+                return acc;
+            }, {});
+            Object.entries(statusCounts).forEach(([status, count]) => {
+                console.log(`  ${status}: ${count}`);
+            });
+            console.log('═══════════════════════════════════════════════════════════');
 
             // ⚡ ULTRA OPTIMIZED: Minimal fields + lean() + limit
             const results = await Event.find({ 
                 status: 'LIVE', 
-                date: { $gte: startOfToday } 
+                date: { $gte: filterFrom } 
             })
             .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel tickets floors price') // Added tickets, floors and price
             .populate({
@@ -130,10 +172,11 @@ export const getAllEvents = async (req, res, next) => {
             });
         });
 
-        // Get total count for pagination
+        // Get total count for pagination (same 1-day backward window)
+        const _filterFrom = new Date(new Date().setHours(0,0,0,0) - 24 * 60 * 60 * 1000);
         const total = await Event.countDocuments({ 
             status: 'LIVE', 
-            date: { $gte: new Date().setHours(0,0,0,0) } 
+            date: { $gte: _filterFrom } 
         });
 
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');

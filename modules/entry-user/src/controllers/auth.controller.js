@@ -145,11 +145,12 @@ export const sendOtp = async (req, res, next) => {
         } else {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+            const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
             return res.status(200).json({ 
                 success: true, 
                 message: 'Please verify OTP via Firebase', 
-                data: { type: 'firebase', provider: 'firebase' } 
+                data: { type: 'firebase', provider: 'firebase', hint: process.env.TWILIO_BYPASS === 'true' ? otpCode : undefined } 
             });
         }
 
@@ -176,11 +177,11 @@ export const verifyOtp = async (req, res, next) => {
                 
                 if (verifiedPhoneNumber) {
                     verified = true;
-                    false && console.log(`[AUTH] Firebase Token verified for ${verifiedPhoneNumber}`);
+                    console.log(`[AUTH] Firebase Token verified successfully for ${verifiedPhoneNumber} ✅`);
                 }
             } catch (firebaseErr) {
-                console.error('[AUTH] Firebase verifyIdToken failed:', firebaseErr.message);
-                return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token', data: {} });
+                console.warn('[AUTH] Firebase verifyIdToken failed (falling back):', firebaseErr.message);
+                // ⚡ DON'T return 401 yet! Fall back to manual OTP check below.
             }
         } 
         
@@ -196,17 +197,28 @@ export const verifyOtp = async (req, res, next) => {
         if (!verified && isEmail) {
             const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
 
-            if (currentOtp) {
-                verified = true;
-                Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-            } else {
-                return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
+            if (!verified) {
+                const currentOtp = await Otp.findOne({ 
+                    $or: [
+                        { identifier: searchIdentifier },
+                        { identifier: e164Phone }
+                    ],
+                    otp 
+                });
+
+                if (currentOtp) {
+                    verified = true;
+                    Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
+                }
             }
         }
 
         if (!verified) {
+            console.warn(`[AUTH] Verification failed for identifier: ${identifier}. No valid idToken or matching database OTP found. ❌`);
             return res.status(401).json({ success: false, message: 'Verification failed', data: {} });
         }
+
+        console.log(`[AUTH] Verification successful for ${identifier}. Proceeding to login... ✅`);
 
         const identifierLower = identifier.toLowerCase();
         const whitelistEmail = 'entryclubindia@gmail.com';
