@@ -806,15 +806,18 @@ export const googleLogin = async (req, res, next) => {
 
         return res.json({
             success: true,
-            user: {
+            message: 'Google login successful',
+            data: {
                 id: user._id,
                 name: user.name || name,
+                email: user.email || emailLower,
                 role: 'user',
+                hostId: null,
                 profileImage: user.profileImage || picture,
-                onboardingCompleted: user.onboardingCompleted
-            },
-            token: accessToken,
-            refreshToken
+                onboardingCompleted: user.onboardingCompleted,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            }
         });
     } catch (err) {
         next(err);
