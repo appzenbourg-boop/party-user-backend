@@ -269,3 +269,23 @@ export const respondSplitRequest = async (req, res, next) => {
         res.status(200).json({ success: true, message: 'Split responded' });
     } catch (err) { next(err); }
 };
+
+export const deleteAccount = async (req, res, next) => {
+    try {
+        const { id, role } = req.user;
+        const normalizedRole = role?.toUpperCase();
+
+        if (normalizedRole === 'HOST') {
+            await Host.findByIdAndDelete(id);
+        } else if (['ADMIN', 'SUPERADMIN'].includes(normalizedRole)) {
+            await Admin.findByIdAndDelete(id);
+        } else if (['STAFF', 'WAITER', 'SECURITY'].includes(normalizedRole)) {
+            await Staff.findByIdAndDelete(id);
+        } else {
+            await User.findByIdAndDelete(id);
+        }
+
+        await cacheService.delete(cacheService.formatKey('profile_v2', id));
+        res.status(200).json({ success: true, message: 'Account deleted successfully' });
+    } catch (err) { next(err); }
+};
