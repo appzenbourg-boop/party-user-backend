@@ -923,15 +923,18 @@ export const appleLogin = async (req, res, next) => {
 
         res.status(200).json({
             success: true,
-            user: {
+            message: 'Apple login successful',
+            data: {
                 id: user._id,
                 name: user.name,
+                email: user.email,
                 role: 'user',
+                hostId: null,
                 profileImage: user.profileImage,
-                onboardingCompleted: user.onboardingCompleted
-            },
-            token: accessToken,
-            refreshToken
+                onboardingCompleted: user.onboardingCompleted,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            }
         });
 
     } catch (err) {
