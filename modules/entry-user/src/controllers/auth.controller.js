@@ -143,19 +143,9 @@ export const sendOtp = async (req, res, next) => {
             }, 0);
 
         } else {
-            // ── PHONE PATH: Handled by Firebase client-side ──────────────────
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
             const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-
-            console.log(`[AUTH] Firebase Phone Auth requested for ${e164Phone}`);
-            
-            // 🔥 BACKUP: Save OTP to DB in case Firebase verification fails or client uses manual flow
-            await Otp.findOneAndUpdate(
-                { identifier: e164Phone }, 
-                { otp: otpCode, createdAt: new Date() }, 
-                { upsert: true, new: true, setDefaultsOnInsert: true }
-            ).catch(err => console.error('[AUTH] Phone OTP Save Error:', err.message));
 
             return res.status(200).json({ 
                 success: true, 
@@ -195,17 +185,17 @@ export const verifyOtp = async (req, res, next) => {
             }
         } 
         
-        // ── 3. MANUAL OTP VERIFICATION (FALLBACK FOR BOTH EMAIL & PHONE) ───────────
-        if (!verified) {
-            const searchIdentifier = identifier.toLowerCase();
-            const rawPhone = !isEmail ? searchIdentifier.replace(/\s/g, '') : null;
-            const e164Phone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`) : null;
-            
-            // ⚡ BYPASS LOGIC (Restored from old version)
-            if (!isEmail && process.env.TWILIO_BYPASS === 'true') {
-                console.log(`[AUTH] Twilio Bypass active for ${e164Phone} ✅`);
-                verified = true;
+        // ── 2. PHONE VERIFICATION (FIREBASE ONLY) ──────────────────────────
+        if (!verified && !isEmail) {
+            if (!idToken) {
+                return res.status(400).json({ success: false, message: 'Firebase idToken required for phone verification', data: {} });
             }
+            // idToken was verified in Step 1 above. verified = true already.
+        }
+        
+        // ── 3. EMAIL OTP VERIFICATION (EXISTING) ───────────────────────────
+        if (!verified && isEmail) {
+            const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
 
             if (!verified) {
                 const currentOtp = await Otp.findOne({ 
