@@ -500,3 +500,117 @@ export const verifyFoodPayment = async (req, res, next) => {
         next(error);
     }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// iOS Checkout Page
+// ─────────────────────────────────────────────────────────────────────────────
+// Serves an HTML page that auto-opens Razorpay's web checkout (JS SDK).
+// Called by the iOS app via expo-web-browser (SFAuthenticationSession).
+// On success: Razorpay redirects to callbackUrl?razorpay_payment_id=...
+// On failure: payment.failed handler redirects to callbackUrl?error=1&...
+// SFAuthenticationSession intercepts the entry-club:// redirect automatically.
+// ─────────────────────────────────────────────────────────────────────────────
+export const iosCheckoutPage = (req, res) => {
+    const {
+        orderId,
+        amount,
+        description = 'Entry Club Payment',
+        callbackUrl,
+        name = '',
+        email = '',
+        contact = '',
+    } = req.query;
+
+    if (!orderId || !amount || !callbackUrl) {
+        return res.status(400).send('<h3>Missing required payment parameters.</h3>');
+    }
+
+    // Sanitize inputs — prevent XSS in the inline JS template
+    const safe = (str) => String(str || '').replace(/[<>"'`\\]/g, '');
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Entry Club — Secure Payment</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0A0B10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .logo {
+      width: 64px; height: 64px;
+      background: rgba(124,77,255,0.15);
+      border: 1px solid rgba(124,77,255,0.3);
+      border-radius: 20px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px;
+    }
+    p { color: rgba(255,255,255,0.5); font-size: 15px; letter-spacing: 0.3px; }
+    .dots { display: flex; gap: 6px; margin-top: 20px; }
+    .dots span {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: rgba(124,77,255,0.7);
+      animation: bounce 1.2s infinite ease-in-out;
+    }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%,80%,100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+        stroke="#7C4DFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <p>Opening secure payment...</p>
+  <div class="dots"><span></span><span></span><span></span></div>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script>
+    var rzp = new Razorpay({
+      key:          'rzp_live_Sjob3tTlrGrG0X',
+      order_id:     '${safe(orderId)}',
+      amount:       '${safe(amount)}',
+      currency:     'INR',
+      name:         'Entry Club',
+      description:  '${safe(description)}',
+      image:        'https://i.imgur.com/n5tjHFD.png',
+      callback_url: '${safe(callbackUrl)}',
+      redirect:     true,
+      prefill: {
+        name:    '${safe(name)}',
+        email:   '${safe(email)}',
+        contact: '${safe(contact)}'
+      },
+      theme: { color: '#7c4dff' },
+      modal: { backdropclose: false, escape: false }
+    });
+
+    rzp.on('payment.failed', function(r) {
+      var desc = encodeURIComponent(r.error.description || 'Payment failed');
+      var code = encodeURIComponent(r.error.code || 'UNKNOWN');
+      window.location.href = '${safe(callbackUrl)}?error=1&error[code]=' + code + '&error[description]=' + desc;
+    });
+
+    window.onload = function() { rzp.open(); };
+  </script>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(200).send(html);
+};
