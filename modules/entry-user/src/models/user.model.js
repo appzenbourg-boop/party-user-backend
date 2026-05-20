@@ -5,6 +5,7 @@ const userSchema = new mongoose.Schema({
     name: { type: String, default: '' },
     gender: { type: String, enum: ['Male', 'Female', 'Other', ''], default: '' },
     googleId: { type: String, unique: true, sparse: true },
+    appleId: { type: String, unique: true, sparse: true },
     tokenVersion: { type: Number, default: 0 },
     email: { type: String, unique: true, sparse: true },
     password: { type: String },
@@ -53,6 +54,7 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 // ⚡ PRODUCTION-READY INDEXES - Optimized for auth and queries
 userSchema.index({ phone: 1 }, { unique: true, sparse: true }); // Auth (CRITICAL)
 userSchema.index({ email: 1 }, { unique: true, sparse: true }); // Auth (CRITICAL)
+userSchema.index({ appleId: 1 }, { unique: true, sparse: true }); // Auth (CRITICAL)
 userSchema.index({ role: 1, isActive: 1 }); // Auth middleware (CRITICAL)
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });

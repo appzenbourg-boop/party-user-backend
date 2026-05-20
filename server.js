@@ -43,21 +43,21 @@ import { errorHandler, notFoundHandler } from './modules/entry-user/src/middlewa
 const app = express();
 app.set('trust proxy', 1);
 
-// ⚡ PRODUCTION SECURITY - Helmet with strict CSP
+// ── Security Headers (Helmet) ─────────────────────────────────────────────────
 app.use(helmet({
     contentSecurityPolicy: {
+        useDefaults: true,
         directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
-            imgSrc: ["'self'", "data:", "https:"],
+            defaultSrc:  ["'self'"],
+            scriptSrc:   ["'self'", "'unsafe-inline'", "https://checkout.razorpay.com"],
+            frameSrc:    ["'self'", "https://api.razorpay.com", "https://checkout.razorpay.com"],
+            connectSrc:  ["'self'", "https://api.razorpay.com", "https://lumberjack.razorpay.com"],
+            imgSrc:      ["'self'", "data:", "https://checkout.razorpay.com", "https://i.imgur.com"],
+            styleSrc:    ["'self'", "'unsafe-inline'"],
+            fontSrc:     ["'self'", "data:"],
         },
     },
-    hsts: {
-        maxAge: 31536000,
-        includeSubDomains: true,
-        preload: true
-    }
+    crossOriginEmbedderPolicy: false,  // Required for Razorpay iframe
 }));
 
 app.use(mongoSanitize());
