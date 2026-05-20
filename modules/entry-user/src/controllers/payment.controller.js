@@ -605,7 +605,7 @@ export const iosCheckoutPage = (req, res) => {
       window.location.href = '${safe(callbackUrl)}?error=1&error[code]=' + code + '&error[description]=' + desc;
     });
 
-    window.onload = function() { rzp.open(); };
+    rzp.open();
   </script>
 </body>
 </html>`;
