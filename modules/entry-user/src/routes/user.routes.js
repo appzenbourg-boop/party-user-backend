@@ -2,7 +2,7 @@ import express from 'express';
 import {
     getProfile, updateProfile, changePassword, checkUsername, updateMembership,
     submitAppRating, getReferralData, applyReferralCode,
-    sendSplitRequest, getSplitRequests, respondSplitRequest
+    sendSplitRequest, getSplitRequests, respondSplitRequest, deleteAccount
 } from '../controllers/user.controller.js';
 
 import {
@@ -40,6 +40,7 @@ router.put('/profile', updateProfile);
 router.post('/check-username', checkUsername);
 router.put('/change-password', changePassword);
 router.put('/membership', updateMembership);
+router.delete('/account', deleteAccount);
 
 // --- BOOKINGS (Guest Side) ---
 router.get('/bookings', getMyBookings);

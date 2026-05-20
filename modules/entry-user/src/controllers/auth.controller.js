@@ -834,6 +834,7 @@ export const appleLogin = async (req, res, next) => {
 
         // Verify the Apple token
         const appleIdTokenClaims = await appleSigninAuth.verifyIdToken(identityToken, {
+            audience: 'com.entryclub.iosapp',
             ignoreExpiration: true,
         });
 
