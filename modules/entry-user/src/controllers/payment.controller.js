@@ -99,15 +99,19 @@ export const verifyPayment = async (req, res, next) => {
             let isNewBooking = true;
             
             if (bookingId) {
-                // Attempt atomic update if member already exists
+                // ALWAYS push new member on split payment (allows same user to test unlocking multiple passes)
                 let updated = await Booking.findOneAndUpdate(
-                    { _id: bookingId, 'members.userId': userId },
+                    { _id: bookingId },
                     {
-                        $set: {
-                            'members.$.paymentStatus': 'PAID',
-                            'members.$.ticketStatus': 'ACTIVE',
-                            'members.$.ticketType': cleanTicketType,
-                            'members.$.pricePaid': pricePaid
+                        $push: {
+                            members: {
+                                userId,
+                                paymentStatus: 'PAID',
+                                ticketStatus: 'ACTIVE',
+                                ticketType: cleanTicketType,
+                                pricePaid,
+                                joinedAt: new Date()
+                            }
                         },
                         $inc: {
                             pricePaid: pricePaid || 0,
@@ -117,31 +121,6 @@ export const verifyPayment = async (req, res, next) => {
                     },
                     { new: true }
                 );
-
-                // If member doesn't exist, push new member
-                if (!updated) {
-                    updated = await Booking.findOneAndUpdate(
-                        { _id: bookingId },
-                        {
-                            $push: {
-                                members: {
-                                    userId,
-                                    paymentStatus: 'PAID',
-                                    ticketStatus: 'ACTIVE',
-                                    ticketType: cleanTicketType,
-                                    pricePaid,
-                                    joinedAt: new Date()
-                                }
-                            },
-                            $inc: {
-                                pricePaid: pricePaid || 0,
-                                adminCommission: adminCommission,
-                                hostEarnings: hostEarnings
-                            }
-                        },
-                        { new: true }
-                    );
-                }
 
                 if (updated) {
                     isNewBooking = false;
