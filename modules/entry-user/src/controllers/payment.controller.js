@@ -99,29 +99,53 @@ export const verifyPayment = async (req, res, next) => {
             let isNewBooking = true;
             
             if (bookingId) {
-                booking = await Booking.findById(bookingId);
-                if (booking) {
+                // Attempt atomic update if member already exists
+                let updated = await Booking.findOneAndUpdate(
+                    { _id: bookingId, 'members.userId': userId },
+                    {
+                        $set: {
+                            'members.$.paymentStatus': 'PAID',
+                            'members.$.ticketStatus': 'ACTIVE',
+                            'members.$.ticketType': cleanTicketType,
+                            'members.$.pricePaid': pricePaid
+                        },
+                        $inc: {
+                            pricePaid: pricePaid || 0,
+                            adminCommission: adminCommission,
+                            hostEarnings: hostEarnings
+                        }
+                    },
+                    { new: true }
+                );
+
+                // If member doesn't exist, push new member
+                if (!updated) {
+                    updated = await Booking.findOneAndUpdate(
+                        { _id: bookingId },
+                        {
+                            $push: {
+                                members: {
+                                    userId,
+                                    paymentStatus: 'PAID',
+                                    ticketStatus: 'ACTIVE',
+                                    ticketType: cleanTicketType,
+                                    pricePaid,
+                                    joinedAt: new Date()
+                                }
+                            },
+                            $inc: {
+                                pricePaid: pricePaid || 0,
+                                adminCommission: adminCommission,
+                                hostEarnings: hostEarnings
+                            }
+                        },
+                        { new: true }
+                    );
+                }
+
+                if (updated) {
                     isNewBooking = false;
-                    
-                    // Add or Update member
-                    const memberIndex = booking.members.findIndex(m => m.userId.toString() === userId);
-                    if (memberIndex >= 0) {
-                        booking.members[memberIndex].paymentStatus = 'PAID';
-                        booking.members[memberIndex].ticketStatus = 'ACTIVE';
-                    } else {
-                        booking.members.push({
-                            userId,
-                            paymentStatus: 'PAID',
-                            ticketStatus: 'ACTIVE'
-                        });
-                    }
-                    
-                    // Add to total paid amounts
-                    booking.pricePaid = (booking.pricePaid || 0) + (pricePaid || 0);
-                    booking.adminCommission = (booking.adminCommission || 0) + adminCommission;
-                    booking.hostEarnings = (booking.hostEarnings || 0) + hostEarnings;
-                    
-                    await booking.save();
+                    booking = updated;
                 }
             }
             

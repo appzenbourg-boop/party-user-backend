@@ -66,8 +66,8 @@ export const getBookingById = async (req, res, next) => {
         if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
 
         // Security Check: Only primary booker or group member can view
-        const isPrimary = booking.userId.toString() === req.user.id;
-        const member = booking.members?.find(m => m.userId.toString() === req.user.id);
+        const isPrimary = booking.userId?.toString() === req.user.id;
+        const member = booking.members?.find(m => m.userId?.toString() === req.user.id);
 
         // Hide sensitive ticket information if the user is not a PAID member and not primary
         if (!isPrimary && (!member || member.paymentStatus !== 'PAID')) {
