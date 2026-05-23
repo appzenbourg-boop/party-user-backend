@@ -18,14 +18,14 @@ export const getMyBookings = async (req, res, next) => {
             return res.status(200).json({ success: true, data: cached });
         }
 
-        // Build query
-        const query = { userId: req.user.id };
+        // Build query to include primary booker OR member
+        const query = { $or: [{ userId: req.user.id }, { 'members.userId': req.user.id }] };
         if (status) query.status = status;
 
         // ⚡ ULTRA OPTIMIZED: Pagination + minimal fields + lean()
         const [bookings, total] = await Promise.all([
             Booking.find(query)
-                .select('eventId status paymentStatus ticketType pricePaid createdAt')
+                .select('eventId status paymentStatus ticketType pricePaid createdAt members')
                 .populate('eventId', 'title date coverImage startTime')
                 .sort({ createdAt: -1 })
                 .skip(skip)
@@ -59,11 +59,24 @@ export const getBookingById = async (req, res, next) => {
 
         // ⚡ Single query — lean() keeps hostId as string before populate
         const booking = await Booking.findById(id)
-            .select('eventId hostId status paymentStatus ticketType tableId seatIds guests pricePaid checkInTime createdAt')
+            .select('userId members eventId hostId status paymentStatus ticketType tableId seatIds guests pricePaid checkInTime createdAt')
             .populate('eventId', 'title date coverImage startTime venue')
             .lean();
 
         if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
+
+        // Security Check: Only primary booker or group member can view
+        const isPrimary = booking.userId.toString() === req.user.id;
+        const member = booking.members?.find(m => m.userId.toString() === req.user.id);
+
+        // Hide sensitive ticket information if the user is not a PAID member and not primary
+        if (!isPrimary && (!member || member.paymentStatus !== 'PAID')) {
+            delete booking.seatIds;
+            delete booking.qrPayload;
+            // Provide a hint to the frontend
+            booking.isPaymentPending = true;
+            booking.canJoin = !member;
+        }
 
         // hostId stays as plain string in lean() result (no populate = never null)
         booking.hostIdRaw = booking.hostId?.toString() || null;

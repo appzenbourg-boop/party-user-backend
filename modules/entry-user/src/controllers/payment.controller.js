@@ -53,7 +53,6 @@ export const createOrder = async (req, res, next) => {
 
 export const verifyPayment = async (req, res, next) => {
     try {
-        const {
             razorpay_order_id,
             razorpay_payment_id,
             razorpay_signature,
@@ -70,7 +69,7 @@ export const verifyPayment = async (req, res, next) => {
                           (razorpay_signature === 'simulated_signature' && razorpay_payment_id.startsWith('pay_simulated_'));
 
         if (isVerified) {
-            const { eventId, hostId: clientHostId, ticketType, tableId, seatIds, pricePaid, guestCount, userCouponId } = bookingData;
+            const { eventId, hostId: clientHostId, ticketType, tableId, seatIds, pricePaid, guestCount, userCouponId, bookingId } = bookingData;
             const numGuests = Number(guestCount) || 1;
             const userId = req.user.id;
 
@@ -94,37 +93,65 @@ export const verifyPayment = async (req, res, next) => {
             const adminCommission = (pricePaid || 0) * commissionRate;
             const hostEarnings = (pricePaid || 0) * (1 - commissionRate);
 
-            // 4. Resolve / generate seatIds
-            //    - If the user selected explicit seats from the floor plan → use them as-is
-            //    - Otherwise (General Access, no floor plan) → generate sequential IDs
-            //      so every booking always has a concrete, readable seat reference.
-            let resolvedSeatIds = Array.isArray(seatIds) && seatIds.length > 0 ? seatIds : [];
-            let resolvedTableId = tableId || (resolvedSeatIds.length > 0 ? resolvedSeatIds[0] : null);
-
-            if (resolvedSeatIds.length === 0 && numGuests > 0) {
-                // Generate IDs like "<bookingShortId>_s1", "<bookingShortId>_s2" ...
-                // We don't have booking._id yet, so use a random base
-                const base = Math.random().toString(36).substring(2, 10).toUpperCase();
-                resolvedSeatIds = Array.from({ length: numGuests }, (_, i) => `${base}_s${i + 1}`);
-                resolvedTableId = resolvedTableId || resolvedSeatIds[0];
+            // 4. Handle Booking Logic
+            let booking;
+            let isNewBooking = true;
+            
+            if (bookingId) {
+                booking = await Booking.findById(bookingId);
+                if (booking) {
+                    isNewBooking = false;
+                    
+                    // Add or Update member
+                    const memberIndex = booking.members.findIndex(m => m.userId.toString() === userId);
+                    if (memberIndex >= 0) {
+                        booking.members[memberIndex].paymentStatus = 'PAID';
+                        booking.members[memberIndex].ticketStatus = 'ACTIVE';
+                    } else {
+                        booking.members.push({
+                            userId,
+                            paymentStatus: 'PAID',
+                            ticketStatus: 'ACTIVE'
+                        });
+                    }
+                    
+                    // Add to total paid amounts
+                    booking.pricePaid = (booking.pricePaid || 0) + (pricePaid || 0);
+                    booking.adminCommission = (booking.adminCommission || 0) + adminCommission;
+                    booking.hostEarnings = (booking.hostEarnings || 0) + hostEarnings;
+                    
+                    await booking.save();
+                }
             }
+            
+            if (isNewBooking) {
+                // Generate seats if needed
+                let resolvedSeatIds = Array.isArray(seatIds) && seatIds.length > 0 ? seatIds : [];
+                let resolvedTableId = tableId || (resolvedSeatIds.length > 0 ? resolvedSeatIds[0] : null);
 
-            // 5. Create booking
-            const booking = await Booking.create({
-                userId,
-                hostId,
-                eventId,
-                serviceId: eventId,
-                ticketType: ticketType || 'General Admit',
-                tableId: resolvedTableId,
-                seatIds: resolvedSeatIds,
-                pricePaid: pricePaid || 0,
-                adminCommission: adminCommission,
-                hostEarnings: hostEarnings,
-                guests: numGuests,
-                status: 'approved',
-                paymentStatus: 'paid'
-            });
+                if (resolvedSeatIds.length === 0 && numGuests > 0) {
+                    const base = Math.random().toString(36).substring(2, 10).toUpperCase();
+                    resolvedSeatIds = Array.from({ length: numGuests }, (_, i) => `${base}_s${i + 1}`);
+                    resolvedTableId = resolvedTableId || resolvedSeatIds[0];
+                }
+
+                booking = await Booking.create({
+                    userId,
+                    hostId,
+                    eventId,
+                    serviceId: eventId,
+                    ticketType: ticketType || 'General Admit',
+                    tableId: resolvedTableId,
+                    seatIds: resolvedSeatIds,
+                    pricePaid: pricePaid || 0,
+                    adminCommission: adminCommission,
+                    hostEarnings: hostEarnings,
+                    guests: numGuests,
+                    status: 'approved',
+                    paymentStatus: 'paid',
+                    members: [{ userId, paymentStatus: 'PAID', ticketStatus: 'ACTIVE' }]
+                });
+            }
 
             // 5. Update Host Wallet (Atomic)
             const updatedHost = await Host.findByIdAndUpdate(
@@ -163,17 +190,19 @@ export const verifyPayment = async (req, res, next) => {
 
             const tasks = [];
 
-            // Atomic sold count update (using cleaned type for match)
-            tasks.push(Event.updateOne(
-                { _id: eventId, "tickets.type": cleanTicketType },
-                { $inc: { "tickets.$.sold": numGuests, attendeeCount: numGuests } }
-            ).then(async (res) => {
-                if (res.modifiedCount === 0) {
-                    false && console.warn(`[verifyPayment] ⚠️ Sold count NOT updated in tickets array. Ticket "${cleanTicketType}" not found in Event ${eventId}`);
-                    // Fallback: at least update the top level attendeeCount if exact ticket match failed
-                    await Event.updateOne({ _id: eventId }, { $inc: { attendeeCount: numGuests } });
-                }
-            }).catch(err => false && console.error('[Event Sold Count Error]', err.message)));
+            if (isNewBooking) {
+                // Atomic sold count update (using cleaned type for match) - only for NEW bookings
+                // since the primary booker already booked all seats for the group
+                tasks.push(Event.updateOne(
+                    { _id: eventId, "tickets.type": cleanTicketType },
+                    { $inc: { "tickets.$.sold": numGuests, attendeeCount: numGuests } }
+                ).then(async (res) => {
+                    if (res.modifiedCount === 0) {
+                        false && console.warn(`[verifyPayment] ⚠️ Sold count NOT updated in tickets array. Ticket "${cleanTicketType}" not found in Event ${eventId}`);
+                        await Event.updateOne({ _id: eventId }, { $inc: { attendeeCount: numGuests } });
+                    }
+                }).catch(err => false && console.error('[Event Sold Count Error]', err.message)));
+            }
 
             // System notification
             tasks.push(Notification.create({

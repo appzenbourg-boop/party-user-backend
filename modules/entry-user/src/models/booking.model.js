@@ -21,7 +21,14 @@ const bookingSchema = new mongoose.Schema({
     hostEarnings: { type: Number, default: 0 },
 
     status: { type: String, enum: ['pending', 'approved', 'rejected', 'active', 'checked_in', 'cancelled', 'invalid'], default: 'pending' },
-    paymentStatus: { type: String, enum: ['pending', 'paid'], default: 'pending' }
+    paymentStatus: { type: String, enum: ['pending', 'paid'], default: 'pending' },
+    
+    // Group / Split Booking members
+    members: [{
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        paymentStatus: { type: String, enum: ['PENDING', 'PAID', 'FAILED'], default: 'PENDING' },
+        ticketStatus: { type: String, enum: ['LOCKED', 'ACTIVE'], default: 'LOCKED' }
+    }]
 }, { timestamps: true });
 
 // ⚡ PRODUCTION-READY INDEXES - Optimized for all query patterns
