@@ -61,7 +61,7 @@ export const getBookingById = async (req, res, next) => {
         const booking = await Booking.findById(id)
             .select('userId members eventId hostId status paymentStatus ticketType tableId seatIds guests pricePaid checkInTime createdAt')
             .populate('eventId', 'title date coverImage startTime venue')
-            .populate('userId', 'name profileImage')
+            .populate('userId', 'name phone profileImage')
             .lean();
 
         if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
