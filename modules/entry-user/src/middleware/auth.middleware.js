@@ -99,7 +99,7 @@ export const protect = async (req, res, next) => {
         const userId = decoded.userId || decoded.id || decoded._id;
         
         // ⚡ STRICT ROLE ISOLATION ENFORCEMENT
-        if (userRole !== 'user') {
+        if (userRole?.toLowerCase() !== 'user') {
             return res.status(403).json({ success: false, message: 'Unauthorized. Area restricted to Users only.' });
         }
 
