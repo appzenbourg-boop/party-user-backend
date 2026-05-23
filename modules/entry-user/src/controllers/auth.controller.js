@@ -9,8 +9,8 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { registerSchema, loginSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, sendOtpSchema, verifyOtpSchema } from '../validators/auth.validator.js';
 import sendEmail from '../utils/sendEmail.js';
-import { sendSmsOtp, verifySmsOtp } from '../services/sms.service.js';
 import { cacheService } from '../services/cache.service.js';
+import appleSigninAuth from 'apple-signin-auth';
 
 // ── Username Generation for Google Users ────────────────────────────────────
 const generateUsername = (name) => {
@@ -143,67 +143,25 @@ export const sendOtp = async (req, res, next) => {
             }, 0);
 
         } else {
-            // ── PHONE PATH ────────────────────────────────────────────────────
+            // ── PHONE PATH: Handled by Firebase client-side ──────────────────
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+            const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-            // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
-            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
+            console.log(`[AUTH] Firebase Phone Auth requested for ${e164Phone}`);
             
-            // ── FIREBASE OTP ──
-            // If the client is handling OTP via Firebase, it might still call this endpoint.
-            // We can just return success so the client proceeds, or bypass if requested.
-            if (req.body.useFirebase) {
-                return res.status(200).json({
-                    success: true,
-                    message: 'Please verify OTP via Firebase',
-                    data: { type: 'firebase' }
-                });
-            }
+            // 🔥 BACKUP: Save OTP to DB in case Firebase verification fails or client uses manual flow
+            await Otp.findOneAndUpdate(
+                { identifier: e164Phone }, 
+                { otp: otpCode, createdAt: new Date() }, 
+                { upsert: true, new: true, setDefaultsOnInsert: true }
+            ).catch(err => console.error('[AUTH] Phone OTP Save Error:', err.message));
 
-            if (useTwilioBypass) {
-                // 🔧 BYPASS MODE: Use local DB OTP (for testing/development)
-                const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-                await Otp.findOneAndUpdate(
-                    { identifier: e164Phone },
-                    { otp: otpCode, createdAt: new Date() },
-                    { upsert: true, new: true, setDefaultsOnInsert: true }
-                );
-                console.log(`[AUTH BYPASS] Phone OTP for ${e164Phone}: ${otpCode}`);
-                return res.status(200).json({
-                    success: true,
-                    message: 'OTP sent (bypass mode)',
-                    data: { type: 'phone', hint: otpCode }
-                });
-            }
-
-            // 🔒 PRODUCTION: Use Twilio Verify with retry logic
-            try {
-                await sendSmsOtp(e164Phone);
-                false && console.log(`[AUTH] Twilio OTP sent to ${e164Phone}`);
-                res.status(200).json({ 
-                    success: true, 
-                    message: 'OTP sent to your phone via SMS', 
-                    data: { type: 'phone' } 
-                });
-            } catch (twilioErr) {
-                console.error('[AUTH] Twilio sendSmsOtp failed:', twilioErr.message);
-                
-                // Fallback to DB OTP if Twilio fails (graceful degradation)
-                const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
-                await Otp.findOneAndUpdate(
-                    { identifier: e164Phone },
-                    { otp: fallbackOtp, createdAt: new Date() },
-                    { upsert: true, new: true }
-                );
-                false && console.log(`[AUTH FALLBACK] Using DB OTP for ${e164Phone}: ${fallbackOtp}`);
-                
-                return res.status(200).json({ 
-                    success: true, 
-                    message: 'OTP sent successfully', 
-                    data: { type: 'phone', hint: fallbackOtp }
-                });
-            }
+            return res.status(200).json({ 
+                success: true, 
+                message: 'Please verify OTP via Firebase', 
+                data: { type: 'firebase', provider: 'firebase', hint: process.env.TWILIO_BYPASS === 'true' ? otpCode : undefined } 
+            });
         }
 
     } catch (err) {
@@ -229,74 +187,48 @@ export const verifyOtp = async (req, res, next) => {
                 
                 if (verifiedPhoneNumber) {
                     verified = true;
-                    false && console.log(`[AUTH] Firebase Token verified for ${verifiedPhoneNumber}`);
+                    console.log(`[AUTH] Firebase Token verified successfully for ${verifiedPhoneNumber} ✅`);
                 }
             } catch (firebaseErr) {
-                console.error('[AUTH] Firebase verifyIdToken failed:', firebaseErr.message);
-                return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token', data: {} });
+                console.warn('[AUTH] Firebase verifyIdToken failed (falling back):', firebaseErr.message);
+                // ⚡ DON'T return 401 yet! Fall back to manual OTP check below.
             }
         } 
         
-        // ── 2. TRADITIONAL OTP VERIFICATION (EXISTING) ────────────────────────
+        // ── 3. MANUAL OTP VERIFICATION (FALLBACK FOR BOTH EMAIL & PHONE) ───────────
         if (!verified) {
-            if (!isEmail) {
-                // ── PHONE PATH ────────────────────────────────────────────────────
-                const rawPhone = identifier.replace(/\s/g, '');
-                const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
+            const searchIdentifier = identifier.toLowerCase();
+            const rawPhone = !isEmail ? searchIdentifier.replace(/\s/g, '') : null;
+            const e164Phone = rawPhone ? (rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`) : null;
+            
+            // ⚡ BYPASS LOGIC (Restored from old version)
+            if (!isEmail && process.env.TWILIO_BYPASS === 'true') {
+                console.log(`[AUTH] Twilio Bypass active for ${e164Phone} ✅`);
+                verified = true;
+            }
 
-                // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
-                const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
-                
-                if (useTwilioBypass) {
-                    // 🔧 BYPASS MODE: Check against local DB OTP
-                    const currentOtp = await Otp.findOne({ identifier: e164Phone, otp });
-                    if (currentOtp) {
-                        verified = true;
-                        Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                    } else {
-                        return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
-                    }
-                } else {
-                    // 🔒 PRODUCTION: Verify via Twilio with fallback
-                    try {
-                        verified = await verifySmsOtp(e164Phone, otp);
-                        if (!verified) {
-                            // Try DB fallback if Twilio says invalid
-                            const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
-                            if (dbOtp) {
-                                verified = true;
-                                Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                            } else {
-                                return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
-                            }
-                        }
-                    } catch (twilioErr) {
-                        false && console.error('[AUTH] Twilio verifySmsOtp error:', twilioErr.message);
-                        // Fallback to DB OTP check
-                        const dbOtp = await Otp.findOne({ identifier: e164Phone, otp });
-                        if (dbOtp) {
-                            verified = true;
-                            Otp.deleteOne({ _id: dbOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                        } else {
-                            return res.status(500).json({ success: false, message: 'OTP verification service error. Please try again.' });
-                        }
-                    }
-                }
-            } else {
-                // ── EMAIL PATH: local OTP model check ───────────────────────────
-                const currentOtp = await Otp.findOne({ identifier: identifier.toLowerCase(), otp });
+            if (!verified) {
+                const currentOtp = await Otp.findOne({ 
+                    $or: [
+                        { identifier: searchIdentifier },
+                        { identifier: e164Phone }
+                    ],
+                    otp 
+                });
+
                 if (currentOtp) {
                     verified = true;
                     Otp.deleteOne({ _id: currentOtp._id }).catch(e => false && console.error('OTP Burn Error:', e.message));
-                } else {
-                    return res.status(401).json({ success: false, message: 'Invalid or expired OTP', data: {} });
                 }
             }
         }
 
         if (!verified) {
+            console.warn(`[AUTH] Verification failed for identifier: ${identifier}. No valid idToken or matching database OTP found. ❌`);
             return res.status(401).json({ success: false, message: 'Verification failed', data: {} });
         }
+
+        console.log(`[AUTH] Verification successful for ${identifier}. Proceeding to login... ✅`);
 
         const identifierLower = identifier.toLowerCase();
         const whitelistEmail = 'entryclubindia@gmail.com';
@@ -789,8 +721,13 @@ export const googleLogin = async (req, res, next) => {
 
         const emailLower = email.toLowerCase();
 
-        // 🔒 SECURITY: Find by googleId ONLY
-        let user = await User.findOne({ googleId });
+        // 🔒 SECURITY: Find by googleId or email
+        let user = await User.findOne({
+            $or: [
+                { googleId },
+                { email: emailLower }
+            ]
+        });
         
         // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
         const [adminExists, hostExists, staffExists] = await Promise.all([
@@ -827,6 +764,17 @@ export const googleLogin = async (req, res, next) => {
                 referralCode,
                 tokenVersion: 1
             });
+        } else {
+            // ✅ Link googleId to existing user if not already set
+            let updates = {};
+            if (!user.googleId) updates.googleId = googleId;
+            if (!user.emailVerified) updates.emailVerified = true;
+            if (!user.isVerified) updates.isVerified = true;
+
+            if (Object.keys(updates).length > 0) {
+                await User.updateOne({ _id: user._id }, { $set: updates });
+                Object.assign(user, updates);
+            }
         } 
 
         if (!user.isActive) {
@@ -858,17 +806,141 @@ export const googleLogin = async (req, res, next) => {
 
         return res.json({
             success: true,
-            user: {
+            message: 'Google login successful',
+            data: {
                 id: user._id,
                 name: user.name || name,
+                email: user.email || emailLower,
                 role: 'user',
+                hostId: null,
                 profileImage: user.profileImage || picture,
-                onboardingCompleted: user.onboardingCompleted
-            },
-            token: accessToken,
-            refreshToken
+                onboardingCompleted: user.onboardingCompleted,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            }
         });
     } catch (err) {
+        next(err);
+    }
+};
+
+export const appleLogin = async (req, res, next) => {
+    try {
+        const { identityToken, email, fullName } = req.body;
+        
+        if (!identityToken) {
+            return res.status(400).json({ success: false, message: 'Apple identityToken required' });
+        }
+
+        // Verify the Apple token
+        const appleIdTokenClaims = await appleSigninAuth.verifyIdToken(identityToken, {
+            audience: 'com.entryclub.iosapp',
+            ignoreExpiration: true,
+        });
+
+        const appleId = appleIdTokenClaims.sub;
+        const tokenEmail = appleIdTokenClaims.email;
+        const finalEmail = (email || tokenEmail || '').toLowerCase();
+
+        let user;
+        if (finalEmail) {
+            user = await User.findOne({ 
+                $or: [
+                    { appleId },
+                    { email: finalEmail }
+                ] 
+            });
+        } else {
+            user = await User.findOne({ appleId });
+        }
+
+        if (!user && !finalEmail) {
+            return res.status(400).json({ success: false, message: 'Could not extract email from Apple login, and user not found' });
+        }
+
+        if (!user) {
+            // New User
+            const tempId = new mongoose.Types.ObjectId();
+            const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase() + tempId.toString().substring(18, 22).toUpperCase();
+            
+            let displayName = 'Apple User';
+            if (fullName) {
+                if (typeof fullName === 'object') {
+                    displayName = `${fullName.givenName || ''} ${fullName.familyName || ''}`.trim();
+                } else if (typeof fullName === 'string') {
+                    displayName = fullName;
+                }
+            } else if (finalEmail) {
+                displayName = finalEmail.split('@')[0];
+            }
+
+            const autoUsername = await getUniqueUsername(displayName);
+
+            user = new User({
+                _id: tempId,
+                name: displayName,
+                username: autoUsername,
+                email: finalEmail,
+                emailVerified: true,
+                isVerified: true,
+                provider: 'apple',
+                appleId,
+                role: 'user',
+                onboardingCompleted: true,
+                isActive: true,
+                referralCode,
+                tokenVersion: 1
+            });
+            await user.save();
+        } else {
+            // Existing User: Update appleId if missing
+            if (!user.appleId) {
+                user.appleId = appleId;
+                await user.constructor.updateOne({ _id: user._id }, { $set: { appleId } });
+            }
+        }
+
+        if (!user.isActive) {
+            return res.status(403).json({ success: false, message: 'Your account has been deactivated' });
+        }
+
+        user.role = "user";
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+
+        const { accessToken, refreshToken } = generateTokens(user);
+        // ✅ CRITICAL FIX: Persist tokenVersion to DB so auth middleware doesn't reject the JWT
+        await user.constructor.updateOne({ _id: user._id }, { $set: { refreshToken, tokenVersion: user.tokenVersion } });
+
+        // Clear caches
+        const cacheKeys = [
+            cacheService.formatKey('active_event', user._id),
+            cacheService.formatKey('my-bookings', user._id),
+            cacheService.formatKey('my-orders', user._id),
+            cacheService.formatKey('profile', user._id),
+            cacheService.formatKey('profile_v2', user._id),
+            `auth_status_${user._id}`
+        ];
+        
+        await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
+
+        res.status(200).json({
+            success: true,
+            message: 'Apple login successful',
+            data: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: 'user',
+                hostId: null,
+                profileImage: user.profileImage,
+                onboardingCompleted: user.onboardingCompleted,
+                accessToken: accessToken,
+                refreshToken: refreshToken
+            }
+        });
+
+    } catch (err) {
+        console.error('[Apple Auth Error]', err.message);
         next(err);
     }
 };

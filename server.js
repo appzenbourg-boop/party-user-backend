@@ -43,21 +43,21 @@ import { errorHandler, notFoundHandler } from './modules/entry-user/src/middlewa
 const app = express();
 app.set('trust proxy', 1);
 
-// ⚡ PRODUCTION SECURITY - Helmet with strict CSP
+// ── Security Headers (Helmet) ─────────────────────────────────────────────────
 app.use(helmet({
     contentSecurityPolicy: {
+        useDefaults: true,
         directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            scriptSrc: ["'self'"],
-            imgSrc: ["'self'", "data:", "https:"],
+            defaultSrc:  ["'self'"],
+            scriptSrc:   ["'self'", "'unsafe-inline'", "https://checkout.razorpay.com"],
+            frameSrc:    ["'self'", "https://api.razorpay.com", "https://checkout.razorpay.com"],
+            connectSrc:  ["'self'", "https://api.razorpay.com", "https://lumberjack.razorpay.com"],
+            imgSrc:      ["'self'", "data:", "https://checkout.razorpay.com", "https://i.imgur.com"],
+            styleSrc:    ["'self'", "'unsafe-inline'"],
+            fontSrc:     ["'self'", "data:"],
         },
     },
-    hsts: {
-        maxAge: 31536000,
-        includeSubDomains: true,
-        preload: true
-    }
+    crossOriginEmbedderPolicy: false,  // Required for Razorpay iframe
 }));
 
 app.use(mongoSanitize());
@@ -157,7 +157,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ limit: '2mb', extended: true }));
 app.use(cookieParser());
 app.use(passport.initialize());
-// app.use(NODE_ENV === 'production' ? morgan('tiny') : morgan('dev'));
+app.use(NODE_ENV === 'production' ? morgan('tiny') : morgan('dev'));
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/',       (_, res) => res.json({ status: 'active', service: 'user-api', env: NODE_ENV }));
