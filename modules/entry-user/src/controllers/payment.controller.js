@@ -53,6 +53,7 @@ export const createOrder = async (req, res, next) => {
 
 export const verifyPayment = async (req, res, next) => {
     try {
+        const {
             razorpay_order_id,
             razorpay_payment_id,
             razorpay_signature,
