@@ -103,7 +103,7 @@ class HighPerformanceCache {
     async delete(key) {
         try {
             if (this.isUpstashEnabled) {
-                this.client.del(key).catch(e => console.error('[Cache Delete Error]', e.message));
+                await this.client.del(key);
             } else {
                 this.localStore.delete(key);
             }

@@ -189,8 +189,8 @@ export const verifyPayment = async (req, res, next) => {
             // the old floor plan (with the seat still 'available') is served from
             // Redis for up to 5 minutes after a booking.
             await cacheService.delete(`floor_plan_${eventId}`);
-            await cacheService.delete(`event_full_v1_${eventId}`); // Ensure ultra-fast endpoint gets busted
-            await cacheService.delete(`event_tickets_v2_${eventId}`); // Ensure tickets endpoint gets busted
+            await cacheService.delete(cacheService.formatKey('event_full_v1', eventId)); // Ensure ultra-fast endpoint gets busted
+            await cacheService.delete(cacheService.formatKey('event_tickets_v2', eventId)); // Ensure tickets endpoint gets busted
 
             const tasks = [];
 
