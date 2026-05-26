@@ -213,7 +213,7 @@ export const getEventBasic = async (req, res, next) => {
             .select('title date endDate startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
             .populate({
                 path: 'hostId',
-                select: 'firstName lastName name profileImage',
+                select: 'firstName lastName name profileImage commissionRate',
                 options: { lean: true }
             })
             .lean();
@@ -225,10 +225,11 @@ export const getEventBasic = async (req, res, next) => {
             const host = item.hostId;
             item.hostId = {
                 ...host,
-                name: host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Collective Underground'
+                name: host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Collective Underground',
+                commissionRate: host.commissionRate !== undefined ? host.commissionRate : 10
             };
         } else {
-            item.hostId = { name: 'Collective Underground' };
+            item.hostId = { name: 'Collective Underground', commissionRate: 10 };
         }
 
         // Privacy masking
@@ -366,7 +367,7 @@ export const getEventFull = async (req, res, next) => {
                 .select('title date endDate startTime endTime coverImage images status hostId locationVisibility isLocationRevealed locationData floorCount attendeeCount description houseRules freeRefreshmentsCount tickets floors bookingOpenDate')
                 .populate({
                     path: 'hostId',
-                    select: 'firstName lastName name profileImage',
+                    select: 'firstName lastName name profileImage commissionRate',
                     options: { lean: true }
                 })
                 .lean(),
@@ -385,10 +386,11 @@ export const getEventFull = async (req, res, next) => {
             event.hostId = {
                 _id: host._id,
                 name: host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Collective Underground',
-                profileImage: host.profileImage
+                profileImage: host.profileImage,
+                commissionRate: host.commissionRate !== undefined ? host.commissionRate : 10
             };
         } else {
-            event.hostId = { name: 'Collective Underground' };
+            event.hostId = { name: 'Collective Underground', commissionRate: 10 };
         }
 
         // ⚡ STEP 4: Privacy masking
