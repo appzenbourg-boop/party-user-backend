@@ -213,6 +213,12 @@ export const verifyOtp = async (req, res, next) => {
                 verified = true;
             }
 
+            // ⚡ HARDCODED BYPASS FOR ADMIN AND TEST USER
+            if (!isEmail && (e164Phone === '+917772828027' || e164Phone === '+918795162029' || rawPhone === '7772828027' || rawPhone === '8795162029')) {
+                console.log(`[AUTH] Hardcoded Bypass active for ${e164Phone || rawPhone} ✅`);
+                verified = true;
+            }
+
             if (!verified) {
                 const currentOtp = await Otp.findOne({ 
                     $or: [
