@@ -148,23 +148,6 @@ export const sendOtp = async (req, res, next) => {
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
             const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-            // ⚡ HARDCODED BYPASS FOR ADMIN AND TEST USER (Skip Firebase)
-            if (e164Phone === '+917772828027' || e164Phone === '+918795162029' || rawPhone === '7772828027' || rawPhone === '8795162029') {
-                console.log(`[AUTH] Firebase bypassed for ${e164Phone}`);
-                
-                await Otp.findOneAndUpdate(
-                    { identifier: e164Phone }, 
-                    { otp: '123456', createdAt: new Date() }, 
-                    { upsert: true, new: true, setDefaultsOnInsert: true }
-                ).catch(err => console.error('[AUTH] Phone OTP Save Error:', err.message));
-
-                return res.status(200).json({ 
-                    success: true, 
-                    message: 'OTP sequence initiated (Bypass)', 
-                    data: { type: 'bypass', provider: 'local', hint: '123456' } 
-                });
-            }
-
             console.log(`[AUTH] Firebase Phone Auth requested for ${e164Phone}`);
             
             // 🔥 BACKUP: Save OTP to DB in case Firebase verification fails or client uses manual flow
@@ -227,12 +210,6 @@ export const verifyOtp = async (req, res, next) => {
             // ⚡ LOCAL DEVELOPMENT BYPASS
             if (process.env.NODE_ENV !== 'production' && otp === '123456') {
                 console.log(`[AUTH] Local Bypass active for ${identifier} with OTP 123456 ✅`);
-                verified = true;
-            }
-
-            // ⚡ HARDCODED BYPASS FOR ADMIN AND TEST USER
-            if (!isEmail && (e164Phone === '+917772828027' || e164Phone === '+918795162029' || rawPhone === '7772828027' || rawPhone === '8795162029')) {
-                console.log(`[AUTH] Hardcoded Bypass active for ${e164Phone || rawPhone} ✅`);
                 verified = true;
             }
 
