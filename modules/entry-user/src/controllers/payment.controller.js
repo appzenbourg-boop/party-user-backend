@@ -40,7 +40,8 @@ export const createOrder = async (req, res, next) => {
 
         res.status(200).json({
             success: true,
-            data: order
+            data: order,
+            key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_Sjob3tTlrGrG0X'
         });
     } catch (error) {
         // Surface Razorpay error description clearly
@@ -442,7 +443,8 @@ export const createFoodOrder = async (req, res, next) => {
         res.status(200).json({
             success: true,
             data: razorpayOrder,
-            foodOrderId: foodOrder._id
+            foodOrderId: foodOrder._id,
+            key_id: process.env.RAZORPAY_KEY_ID || 'rzp_live_Sjob3tTlrGrG0X'
         });
     } catch (error) {
          false && console.error('[Razorpay createFoodOrder error]', error);
