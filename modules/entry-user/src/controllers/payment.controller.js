@@ -16,8 +16,8 @@ import { cacheService } from '../services/cache.service.js';
 import { WalletTransaction } from '../models/WalletTransaction.js';
 
 const razorpay = new Razorpay({
-    key_id:     'rzp_live_Sjob3tTlrGrG0X',
-    key_secret: 'p3xDamIcyPYvVoY8eWwnGQSj',
+    key_id:     process.env.RAZORPAY_KEY_ID || 'rzp_live_Sjob3tTlrGrG0X',
+    key_secret: process.env.RAZORPAY_KEY_SECRET || 'PkFBT2KvmM0g7lHbilOP8NF1',
 });
 
 export const createOrder = async (req, res, next) => {
@@ -62,7 +62,7 @@ export const verifyPayment = async (req, res, next) => {
 
         const sign = razorpay_order_id + "|" + razorpay_payment_id;
         const expectedSign = crypto
-            .createHmac("sha256", 'p3xDamIcyPYvVoY8eWwnGQSj')
+            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || 'PkFBT2KvmM0g7lHbilOP8NF1')
             .update(sign.toString())
             .digest("hex");
 
