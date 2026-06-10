@@ -137,7 +137,12 @@ export const getSupportChat = async (req, res, next) => {
 
 export const clearSupportChat = async (req, res, next) => {
     try {
-        await SupportMessage.deleteMany({ userId: req.user.id });
+        const userId = req.user.id;
+        // Delete all messages from DB
+        await SupportMessage.deleteMany({ userId });
+        // Invalidate the cache so the next GET /chat returns empty instead of stale data
+        const cacheKey = cacheService.formatKey('support', userId);
+        await cacheService.del(cacheKey);
         res.status(200).json({
             success: true,
             message: "Chat history cleared successfully"
