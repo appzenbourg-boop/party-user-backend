@@ -23,7 +23,7 @@ export const getAllEvents = async (req, res, next) => {
         
         const cacheKey = `events:list:${page}:${limit}`; // Standardized cache key
         
-        const events = await cacheService.wrap(cacheKey, 300, async () => { // 5min cache
+        const events = await cacheService.wrap(cacheKey, 15, async () => { // 15s cache so new events appear quickly
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             // ⚡ FIX: Go back 1 day to handle IST/UTC timezone drift.
@@ -179,7 +179,7 @@ export const getAllEvents = async (req, res, next) => {
             date: { $gte: _filterFrom } 
         });
 
-        res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
+        res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
         res.status(200).json({ 
             success: true, 
             data: events,
