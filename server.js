@@ -74,8 +74,14 @@ app.use(cors({
         // Allow requests with no origin (mobile apps, Postman)
         if (!origin) return callback(null, true);
         
-        // Check if origin is in whitelist or matches Expo pattern
-        if (allowedOrigins.includes(origin) || origin.startsWith('exp://')) {
+        // Check if origin is in whitelist, matches Expo pattern, Vercel preview URLs, or prod domain
+        if (
+            allowedOrigins.includes(origin) || 
+            origin.startsWith('exp://') || 
+            origin.endsWith('.vercel.app') || 
+            origin === 'https://stayin.in' ||
+            origin === 'https://www.stayin.in'
+        ) {
             callback(null, true);
         } else {
             logger.warn(`[CORS] Blocked origin: ${origin}`);
