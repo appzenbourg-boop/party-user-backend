@@ -108,7 +108,7 @@ passport.use(new GoogleStrategy({
 router.get('/google', (req, res, next) => {
     const redirectUri = req.query.redirectUri || 'entry-club://auth';
     const state = Buffer.from(JSON.stringify({ redirectUri })).toString('base64');
-    passport.authenticate('google', { scope: ['profile', 'email'], session: false, state })(req, res, next);
+    passport.authenticate('google', { scope: ['profile', 'email'], session: false, state, prompt: 'select_account' })(req, res, next);
 });
 
 // Step 2: Google calls back → generate JWT → deep-link back to app
