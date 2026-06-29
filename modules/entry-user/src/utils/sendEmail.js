@@ -9,6 +9,10 @@ const sendEmail = async (options) => {
         // This secret must match the one used in Next.js /api/send-email/route.ts
         const secret = process.env.EMAIL_API_SECRET || 'entry_club_secure_api_secret_2026';
 
+        console.log(`[FRONTEND-SMTP] ====== INITIATING EMAIL SEND ======`);
+        console.log(`[FRONTEND-SMTP] Target Frontend URL: ${frontendUrl}`);
+        console.log(`[FRONTEND-SMTP] Is FRONTEND_URL environment variable set? : ${!!process.env.FRONTEND_URL}`);
+
         // Call the Next.js API to send the email (Server-to-Server)
         const response = await fetch(`${frontendUrl}/api/send-email`, {
             method: 'POST',
