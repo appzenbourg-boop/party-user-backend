@@ -182,7 +182,18 @@ export const verifyOtp = async (req, res, next) => {
         // ── 1. FIREBASE ID TOKEN VERIFICATION (NEW) ───────────────────────────
         if (idToken) {
             try {
-                const decodedToken = await admin.auth().verifyIdToken(idToken);
+                const platform = req.headers['x-platform'] || req.body.platform;
+                let firebaseAuth = admin.auth();
+                
+                if (platform === 'ios') {
+                    const iosApp = admin.apps.find(app => app.name === 'ios');
+                    if (iosApp) {
+                        firebaseAuth = iosApp.auth();
+                        console.log(`[AUTH] Using iOS Firebase app for verification`);
+                    }
+                }
+
+                const decodedToken = await firebaseAuth.verifyIdToken(idToken);
                 verifiedPhoneNumber = decodedToken.phone_number;
                 
                 if (verifiedPhoneNumber) {
