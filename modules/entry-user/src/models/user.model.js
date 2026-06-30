@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { encryptPII, decryptPII } from '../utils/encryption.js';
 
 const userSchema = new mongoose.Schema({
     name: { type: String, default: '' },
@@ -9,7 +10,13 @@ const userSchema = new mongoose.Schema({
     tokenVersion: { type: Number, default: 0 },
     email: { type: String, unique: true, sparse: true },
     password: { type: String },
-    phone: { type: String, unique: true, sparse: true },
+    phone: { 
+        type: String, 
+        unique: true, 
+        sparse: true,
+        set: encryptPII,
+        get: decryptPII
+    },
     role: { type: String, enum: ['user', 'host', 'admin', 'superadmin', 'staff', 'waiter', 'security'], default: 'user' },
     hostId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // for staff to link to their host
     preferredZone: { type: String }, // for staff zone preference
@@ -30,7 +37,11 @@ const userSchema = new mongoose.Schema({
     resetPasswordExpire: { type: Date },
     verificationToken: { type: String },
     verificationTokenExpire: { type: Date }
-}, { timestamps: true });
+}, { 
+    timestamps: true,
+    toJSON: { getters: true },
+    toObject: { getters: true }
+});
 
 // Pre-save hook to hash password if modified
 userSchema.pre('save', async function (next) {

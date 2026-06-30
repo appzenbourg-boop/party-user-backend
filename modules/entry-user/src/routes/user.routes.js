@@ -32,6 +32,28 @@ import { authorize } from '../middleware/role.middleware.js';
 
 const router = express.Router();
 
+// ==========================================
+// PUBLIC ROUTES (No Auth Required)
+// ==========================================
+
+// --- EVENTS (Discovery) ---
+router.get('/events', getAllEvents);
+router.get('/events/check-updates', checkEventsUpdates); // Smart refresh endpoint
+router.get('/events/:id/full', getEventFull); // ⚡ ULTRA-OPTIMIZED: Single endpoint for all event data
+router.get('/events/:id/basic', getEventBasic);
+router.get('/events/:id/details', getEventDetails);
+router.get('/events/:id/tickets', getEventTickets);
+router.get('/events/:id/floor-plan', getFloorPlan);
+router.get('/events/:eventId/booked-tables', getBookedTables);
+
+// --- VENUES (Discovery) ---
+router.get('/venues', getAllVenues);
+router.get('/venues/:id', getVenueById);
+router.get('/venues/host/:hostId', getVenueByHostId);
+
+// ==========================================
+// PROTECTED ROUTES (Auth Required)
+// ==========================================
 router.use(protect);
 
 // --- IDENTITY & PROFILE ---
@@ -52,25 +74,12 @@ router.put('/bookings/:id/cancel', authorize('user'), cancelBooking);
 router.get('/orders/my', getMyFoodOrders);
 router.get('/orders/check-updates', checkOrdersUpdates); // Smart refresh
 
-// --- EVENTS (Discovery) ---
-router.get('/events', getAllEvents);
-router.get('/events/check-updates', checkEventsUpdates); // Smart refresh endpoint
-router.get('/events/:id/full', getEventFull); // ⚡ ULTRA-OPTIMIZED: Single endpoint for all event data
-router.get('/events/:id/basic', getEventBasic);
-router.get('/events/:id/details', getEventDetails);
-router.get('/events/:id/tickets', getEventTickets);
-router.get('/events/:id/floor-plan', getFloorPlan);
+// --- EVENTS (Protected Actions) ---
 router.post('/events/lock-seats', lockSeats);
 router.post('/events/book', authorize('user'), bookEvent);
-router.get('/events/:eventId/booked-tables', getBookedTables);
 router.get('/active-event', getActiveEvent);
 router.get('/events/:eventId/menu', getMenuItems);
 router.get('/events/:eventId/my-booking', getEventBooking);
-
-// --- VENUES (Discovery) ---
-router.get('/venues', getAllVenues);
-router.get('/venues/:id', getVenueById);
-router.get('/venues/host/:hostId', getVenueByHostId);
 
 // --- HOST CATALOG (post-booking ordering) ---
 router.get('/host/:hostId/menu', getHostMenu);
