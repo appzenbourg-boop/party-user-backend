@@ -190,6 +190,9 @@ export const verifyOtp = async (req, res, next) => {
                     if (iosApp) {
                         firebaseAuth = iosApp.auth();
                         console.log(`[AUTH] Using iOS Firebase app for verification`);
+                    } else {
+                        console.error(`[AUTH] CRITICAL ERROR: Request from iOS but iosApp is not initialized! Check AWS env vars.`);
+                        return res.status(500).json({ success: false, message: 'Server configuration error for iOS Firebase.', data: {} });
                     }
                 }
 
@@ -201,7 +204,7 @@ export const verifyOtp = async (req, res, next) => {
                     console.log(`[AUTH] Firebase Token verified successfully for ${verifiedPhoneNumber} ✅`);
                 }
             } catch (firebaseErr) {
-                console.warn('[AUTH] Firebase verifyIdToken failed (falling back):', firebaseErr.message);
+                console.error('[AUTH] Firebase verifyIdToken EXCEPTION (Check AWS Clock or Audience):', firebaseErr.message);
                 // ⚡ DON'T return 401 yet! Fall back to manual OTP check below.
             }
         } 

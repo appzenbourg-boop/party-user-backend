@@ -2,15 +2,20 @@ import admin from 'firebase-admin';
 import dotenv from 'dotenv';
 dotenv.config();
 
+const cleanKey = (key) => {
+    if (!key) return key;
+    return key.replace(/^"|"$/g, '').replace(/\\n/g, '\n');
+};
+
 const firebaseConfig = {
     projectId: process.env.FIREBASE_PROJECT_ID,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    privateKey: cleanKey(process.env.FIREBASE_PRIVATE_KEY),
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL
 };
 
 const iosFirebaseConfig = {
     projectId: process.env.IOS_FIREBASE_PROJECT_ID,
-    privateKey: process.env.IOS_FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    privateKey: cleanKey(process.env.IOS_FIREBASE_PRIVATE_KEY),
     clientEmail: process.env.IOS_FIREBASE_CLIENT_EMAIL
 };
 
